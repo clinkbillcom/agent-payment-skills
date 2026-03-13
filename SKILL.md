@@ -33,9 +33,9 @@ tools:
   - name: clink_pay
     description: Execute a payment via Clink. Supports two modes — direct mode (merchant_id + amount + currency) and session mode (sessionId from merchant, amount/currency pre-validated). Used by other skills for auto top-up.
   - name: install_system_hooks
-    description: Executes Webhook injection and configures openclaw.json. MUST ONLY BE CALLED AFTER the user approves the Authorization Card.
+    description: 修改 openclaw.json 并在后台延迟 3 秒重启网关。必须在用户输入文字授权后才能调用。
   - name: uninstall_system_hooks
-    description: Completely uninstalls Clink Payment Skill — removes webhook files, cleans openclaw.json config, optionally deletes skill directory, and restarts gateway. Requires user authorization.
+    description: 卸载 Clink Payment Skill：清除 webhook、配置、skill 目录，并在后台延迟 3 秒重启网关。必须在用户输入文字授权后才能调用。
 ---
 
 # Agent Payment Skill
@@ -80,45 +80,45 @@ When the user asks to view or manage their payment methods:
    - 通知邮箱: confirmed ✓
    - 风控规则: 保持不变 ✓
 
-### 3. Post-Installation Setup (Card-Based Workflow)
+### 3. Post-Installation Setup (Text-Based Workflow)
 
-When the user asks to install this skill and the repository has been cloned successfully, the agent MUST follow this strict authorization workflow:
+When the user asks to install this skill, the agent MUST follow this strict workflow:
 
 1. **Send Authorization Card**:
-   Do NOT execute system modifications yet. Call the `feishu-interactive-cards` skill to send the "System Modification Authorization" card (schema provided in `cards/auth_request.json`).
+   Call the `feishu-interactive-cards` skill to send `cards/auth_request.json`. Do NOT execute system modifications yet.
 
-2. **Wait for User Approval**:
-   Pause execution and wait for the user to click "Approve" on the card (or reply with explicit approval in the chat).
+2. **Wait for Text Approval**:
+   Pause execution. **Wait for the user to explicitly reply with "授权安装" or similar approval in the chat.**
 
 3. **Execute High-Risk Operations**:
-   ONLY after approval, call `install_system_hooks` with `authorization_granted: true`. This tool will execute the following sequentially:
+   ONLY AFTER receiving the text approval, call the `install_system_hooks` tool (no parameters needed). This tool will:
    - Copy `hooks/my_payment_webhook.js` into `~/.openclaw/hooks/transforms/`.
    - Inject `{"match": {"path": "my_payment"}, "transform": {"module": "my_payment_webhook.js"}}` into `openclaw.json` under `hooks.mappings`.
-   - Execute `openclaw gateway restart`.
+   - Schedule an async gateway restart (3-second delay, non-blocking).
 
-4. **Send Success Card**:
-   After the gateway restarts, use the script `scripts/send-v2-card.js` to send the final "✅ Clink Skills V2 安装成功" card.
+4. **Final Confirmation**:
+   The tool will return immediately. You MUST reply to the user stating: "✅ 底层配置已写入，网关将在 3 秒后自动重启生效。"
 
-### 4. Uninstall (Card-Based Workflow)
+### 4. Uninstall (Text-Based Workflow)
 
-When the user asks to uninstall this skill, the agent MUST follow the same strict authorization workflow:
+When the user asks to uninstall this skill, the agent MUST follow the same strict workflow:
 
 1. **Send Uninstall Authorization Card**:
-   Do NOT execute any destructive operations yet. Call the `feishu-interactive-cards` skill to send the "Uninstall Authorization" card (schema provided in `cards/uninstall_request.json`).
+   Call the `feishu-interactive-cards` skill to send `cards/uninstall_request.json`. Do NOT execute any destructive operations yet.
 
-2. **Wait for User Approval**:
-   Pause execution and wait for the user to click "确认卸载" on the card (or reply with explicit approval in the chat).
+2. **Wait for Text Approval**:
+   Pause execution. **Wait for the user to explicitly reply with "确认卸载" or similar approval in the chat.**
 
 3. **Execute Uninstall**:
-   ONLY after approval, call `uninstall_system_hooks` with `authorization_granted: true, remove_skill_directory: true`. This tool will execute the following sequentially:
+   ONLY AFTER receiving the text approval, call the `uninstall_system_hooks` tool (no parameters needed). This tool will:
    - Remove `my_payment_webhook.js` from `~/.openclaw/hooks/transforms/`.
    - Remove the `my_payment` route mapping from `openclaw.json` `hooks.mappings`.
    - Remove Clink skill config (`skills.entries["agent-payment-skills"]`) from `openclaw.json`.
-   - Delete the skill directory.
-   - Execute `openclaw gateway restart`.
+   - Remove the skill directory.
+   - Schedule an async gateway restart (3-second delay, non-blocking).
 
-4. **Send Uninstall Complete Card**:
-   After completion, send the "🗑️ Clink Payment Skill 已卸载" card to the user.
+4. **Final Confirmation**:
+   The tool will return immediately. You MUST reply to the user stating: "🗑️ Clink Payment Skill 已卸载，网关将在 3 秒后自动重启生效。"
 
 ## API References
 - API Documentation: `https://docs.clinkbill.com/`

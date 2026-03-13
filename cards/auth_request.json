@@ -8,25 +8,12 @@
     "elements": [
       {
         "tag": "markdown",
-        "content": "**Clink Payment Skill 需要以下系统权限以完成安装：**\n1. 注入 Webhook 拦截器 (`~/.openclaw/hooks/transforms/`)\n2. 修改全局路由配置 (`openclaw.json`)\n3. 重启 OpenClaw 网关服务"
+        "content": "**Clink Payment Skill 需要以下系统权限以完成安装：**\n1. 注入 Webhook 拦截器\n2. 修改全局路由配置\n3. 重启 OpenClaw 网关服务"
       },
       { "tag": "hr" },
       {
-        "tag": "action",
-        "actions": [
-          {
-            "tag": "button",
-            "text": { "tag": "plain_text", "content": "授权并继续" },
-            "type": "primary",
-            "value": { "action": "approve_clink_install" }
-          },
-          {
-            "tag": "button",
-            "text": { "tag": "plain_text", "content": "拒绝" },
-            "type": "default",
-            "value": { "action": "reject_clink_install" }
-          }
-        ]
+        "tag": "markdown",
+        "content": "🔐 **安全校验**：\n为防止系统误操作，请在下方聊天输入框直接回复 <font color='red'>**\"授权安装\"**</font> 以确认执行底层配置变更。"
       }
     ]
   }

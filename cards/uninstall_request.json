@@ -8,25 +8,12 @@
     "elements": [
       {
         "tag": "markdown",
-        "content": "**卸载将执行以下不可逆操作：**\n1. 删除 Webhook 拦截器 (`~/.openclaw/hooks/transforms/my_payment_webhook.js`)\n2. 清除全局路由配置 (`openclaw.json` 中的 hook mapping)\n3. 清除 Clink 账户配置（API Key、Customer ID 等）\n4. 删除 Skill 目录\n5. 重启 OpenClaw 网关服务"
+        "content": "**卸载将执行以下不可逆操作：**\n1. 删除 Webhook 拦截器\n2. 清除全局路由配置\n3. 清除 Clink 账户配置（API Key、Customer ID 等）\n4. 删除 Skill 目录\n5. 重启 OpenClaw 网关服务"
       },
       { "tag": "hr" },
       {
-        "tag": "action",
-        "actions": [
-          {
-            "tag": "button",
-            "text": { "tag": "plain_text", "content": "确认卸载" },
-            "type": "danger",
-            "value": { "action": "approve_clink_uninstall" }
-          },
-          {
-            "tag": "button",
-            "text": { "tag": "plain_text", "content": "取消" },
-            "type": "default",
-            "value": { "action": "reject_clink_uninstall" }
-          }
-        ]
+        "tag": "markdown",
+        "content": "🔐 **安全校验**：\n为防止系统误操作，请在下方聊天输入框直接回复 <font color='red'>**\"确认卸载\"**</font> 以确认执行卸载操作。"
       }
     ]
   }
