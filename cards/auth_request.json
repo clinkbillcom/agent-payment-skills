@@ -1,0 +1,33 @@
+{
+  "schema": "2.0",
+  "header": {
+    "title": { "tag": "plain_text", "content": "⚠️ 核心系统变更授权" },
+    "template": "orange"
+  },
+  "body": {
+    "elements": [
+      {
+        "tag": "markdown",
+        "content": "**Clink Payment Skill 需要以下系统权限以完成安装：**\n1. 注入 Webhook 拦截器 (`~/.openclaw/hooks/transforms/`)\n2. 修改全局路由配置 (`openclaw.json`)\n3. 重启 OpenClaw 网关服务"
+      },
+      { "tag": "hr" },
+      {
+        "tag": "action",
+        "actions": [
+          {
+            "tag": "button",
+            "text": { "tag": "plain_text", "content": "授权并继续" },
+            "type": "primary",
+            "value": { "action": "approve_clink_install" }
+          },
+          {
+            "tag": "button",
+            "text": { "tag": "plain_text", "content": "拒绝" },
+            "type": "default",
+            "value": { "action": "reject_clink_install" }
+          }
+        ]
+      }
+    ]
+  }
+}

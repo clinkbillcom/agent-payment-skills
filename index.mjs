@@ -794,6 +794,173 @@ YOU MUST immediately send a Feishu Interactive Card to the user:
   })
 });
 
+// ------------------------------------------------------------------
+// INSTALLATION TOOL — Card-Based Authorization Workflow
+// ------------------------------------------------------------------
+
+export const install_system_hooks = tool(async (args) => {
+  if (!args.authorization_granted) {
+    return `[SYSTEM DIRECTIVE] Installation BLOCKED: User authorization is required.
+YOU MUST first send the "⚠️ 核心系统变更授权" card (cards/auth_request.json) and wait for the user to click "授权并继续" before calling this tool again with authorization_granted: true.`;
+  }
+
+  const skillDir = path.dirname(new URL(import.meta.url).pathname);
+  const hooksSource = path.join(skillDir, 'hooks', 'my_payment_webhook.js');
+  const hooksTarget = path.join(os.homedir(), '.openclaw', 'hooks', 'transforms', 'my_payment_webhook.js');
+
+  // Step 1: Copy webhook transform file
+  try {
+    await fs.mkdir(path.dirname(hooksTarget), { recursive: true });
+    await fs.copyFile(hooksSource, hooksTarget);
+  } catch (err) {
+    return `[SYSTEM DIRECTIVE] Installation FAILED at step 1 (copy webhook file): ${err.message}`;
+  }
+
+  // Step 2: Inject hook mapping into openclaw.json
+  try {
+    const configPath = await getConfigPath();
+    const config = await loadConfig();
+    config.hooks = config.hooks || {};
+    config.hooks.mappings = config.hooks.mappings || [];
+
+    const newMapping = { match: { path: "my_payment" }, transform: { module: "my_payment_webhook.js" } };
+    const alreadyExists = config.hooks.mappings.some(
+      m => m.match?.path === "my_payment" && m.transform?.module === "my_payment_webhook.js"
+    );
+
+    if (!alreadyExists) {
+      config.hooks.mappings.push(newMapping);
+      await saveConfig(config);
+    }
+  } catch (err) {
+    return `[SYSTEM DIRECTIVE] Installation FAILED at step 2 (inject config): ${err.message}`;
+  }
+
+  // Step 3: Restart OpenClaw Gateway
+  try {
+    const { execSync } = await import('child_process');
+    execSync('openclaw gateway restart', { timeout: 15000 });
+  } catch (err) {
+    return `[SYSTEM DIRECTIVE] Installation partially complete. Webhook and config are ready, but gateway restart failed: ${err.message}
+Please manually run: openclaw gateway restart`;
+  }
+
+  return `[SYSTEM DIRECTIVE] System hooks installed successfully. Gateway restarted.
+YOU MUST now send the "✅ Clink Skills V2 安装成功" success card to the user using scripts/send-v2-card.js.
+
+Installation summary:
+- Webhook transform: copied to ~/.openclaw/hooks/transforms/my_payment_webhook.js ✓
+- Route mapping: injected into openclaw.json hooks.mappings ✓
+- Gateway: restarted ✓`;
+}, {
+  name: "install_system_hooks",
+  description: "Executes Webhook injection and configures openclaw.json. MUST ONLY BE CALLED AFTER the user approves the Authorization Card.",
+  schema: z.object({
+    authorization_granted: z.boolean().describe("Must be true, confirming user clicked Approve on the Auth Card.")
+  })
+});
+
+// ------------------------------------------------------------------
+// UNINSTALL TOOL — Clean removal of skill hooks and config
+// ------------------------------------------------------------------
+
+export const uninstall_system_hooks = tool(async (args) => {
+  if (!args.authorization_granted) {
+    return `[SYSTEM DIRECTIVE] Uninstall BLOCKED: User authorization is required.
+YOU MUST first send the "⚠️ 卸载 Clink Payment Skill 授权" card (cards/uninstall_request.json) via the feishu-interactive-cards skill and wait for the user to click "确认卸载" before calling this tool again with authorization_granted: true.
+DO NOT proceed with any destructive operations until the user explicitly approves.`;
+  }
+
+  const results = [];
+
+  // Step 1: Remove webhook transform file
+  const hooksTarget = path.join(os.homedir(), '.openclaw', 'hooks', 'transforms', 'my_payment_webhook.js');
+  try {
+    await fs.unlink(hooksTarget);
+    results.push("Webhook transform: removed ✓");
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      results.push("Webhook transform: already absent ✓");
+    } else {
+      results.push(`Webhook transform: FAILED to remove — ${err.message}`);
+    }
+  }
+
+  // Step 2: Remove hook mapping from openclaw.json
+  try {
+    const config = await loadConfig();
+    if (config.hooks?.mappings) {
+      const before = config.hooks.mappings.length;
+      config.hooks.mappings = config.hooks.mappings.filter(
+        m => !(m.match?.path === "my_payment" && m.transform?.module === "my_payment_webhook.js")
+      );
+      if (config.hooks.mappings.length < before) {
+        await saveConfig(config);
+        results.push("Route mapping: removed from openclaw.json ✓");
+      } else {
+        results.push("Route mapping: not found in config, skipped ✓");
+      }
+    } else {
+      results.push("Route mapping: no hooks.mappings in config, skipped ✓");
+    }
+  } catch (err) {
+    results.push(`Route mapping: FAILED to clean config — ${err.message}`);
+  }
+
+  // Step 3: Remove skill env config from openclaw.json
+  try {
+    const config = await loadConfig();
+    if (config.skills?.entries?.["agent-payment-skills"]) {
+      delete config.skills.entries["agent-payment-skills"];
+      await saveConfig(config);
+      results.push("Skill config: removed from openclaw.json ✓");
+    } else {
+      results.push("Skill config: not found, skipped ✓");
+    }
+  } catch (err) {
+    results.push(`Skill config: FAILED to clean — ${err.message}`);
+  }
+
+  // Step 4: Remove skill directory
+  if (args.remove_skill_directory) {
+    const skillDir = path.dirname(new URL(import.meta.url).pathname);
+    try {
+      await fs.rm(skillDir, { recursive: true, force: true });
+      results.push(`Skill directory: removed (${skillDir}) ✓`);
+    } catch (err) {
+      results.push(`Skill directory: FAILED to remove — ${err.message}`);
+    }
+  } else {
+    results.push("Skill directory: kept (remove_skill_directory not set)");
+  }
+
+  // Step 5: Restart OpenClaw Gateway
+  try {
+    const { execSync } = await import('child_process');
+    execSync('openclaw gateway restart', { timeout: 15000 });
+    results.push("Gateway: restarted ✓");
+  } catch (err) {
+    results.push(`Gateway: restart FAILED — ${err.message}. Please manually run: openclaw gateway restart`);
+  }
+
+  return `[SYSTEM DIRECTIVE] Clink Payment Skill uninstall complete.
+YOU MUST send a Feishu Interactive Card to the user:
+- Template / Style: "🗑️ Clink Payment Skill 已卸载" (Grey/Neutral theme)
+- Key-Value Rows:
+${results.map(r => `  - ${r}`).join("\n")}
+- Description: "所有 Clink 支付相关配置已清除。如需重新安装，请再次运行安装命令。"
+
+Summary:
+${results.join("\n")}`;
+}, {
+  name: "uninstall_system_hooks",
+  description: "Completely uninstalls Clink Payment Skill: removes webhook files, cleans openclaw.json config, optionally deletes skill directory, and restarts gateway. Requires user authorization.",
+  schema: z.object({
+    authorization_granted: z.boolean().describe("Must be true, confirming user approved the uninstall."),
+    remove_skill_directory: z.boolean().optional().describe("If true, also deletes the skill directory from disk. Defaults to false.")
+  })
+});
+
 export const get_wallet_status = tool(async () => {
   const env = await getPaymentEnv();
   if (!env.CLINK_CUSTOMER_ID) {
@@ -819,5 +986,7 @@ export const agent_payment_skills = [
   update_payment_method,
   delete_payment_method,
   set_default_payment_method,
-  clink_pay
+  clink_pay,
+  install_system_hooks,
+  uninstall_system_hooks
 ];

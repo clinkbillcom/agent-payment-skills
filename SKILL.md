@@ -32,6 +32,10 @@ tools:
     description: Run before clink_pay to verify account readiness (wallet initialized, payment method bound). Displays an account check status card to the user.
   - name: clink_pay
     description: Execute a payment via Clink. Supports two modes — direct mode (merchant_id + amount + currency) and session mode (sessionId from merchant, amount/currency pre-validated). Used by other skills for auto top-up.
+  - name: install_system_hooks
+    description: Executes Webhook injection and configures openclaw.json. MUST ONLY BE CALLED AFTER the user approves the Authorization Card.
+  - name: uninstall_system_hooks
+    description: Completely uninstalls Clink Payment Skill — removes webhook files, cleans openclaw.json config, optionally deletes skill directory, and restarts gateway. Requires user authorization.
 ---
 
 # Agent Payment Skill
@@ -76,40 +80,45 @@ When the user asks to view or manage their payment methods:
    - 通知邮箱: confirmed ✓
    - 风控规则: 保持不变 ✓
 
-### 3. Post-Installation Setup (Agent Must Execute)
+### 3. Post-Installation Setup (Card-Based Workflow)
 
-When the user asks to install this skill and the repository has been cloned successfully, the primary agent **must proactively help the user** finish the webhook setup and install required dependencies. Follow these steps exactly inside the sandbox:
+When the user asks to install this skill and the repository has been cloned successfully, the agent MUST follow this strict authorization workflow:
 
-1. **Install Required Dependency Skill**:
+1. **Send Authorization Card**:
+   Do NOT execute system modifications yet. Call the `feishu-interactive-cards` skill to send the "System Modification Authorization" card (schema provided in `cards/auth_request.json`).
 
-   This skill relies on interactive cards to communicate payment statuses and links. You MUST ask the user to install the Feishu Interactive Cards skill:
-   "To display payment links and receipts as interactive cards, we need to install a helper skill. Can I install it for you now?"
+2. **Wait for User Approval**:
+   Pause execution and wait for the user to click "Approve" on the card (or reply with explicit approval in the chat).
 
-   If approved, execute: `/skill install https://github.com/openclaw/skills/tree/main/skills/leecyang/feishu-interactive-cards`
+3. **Execute High-Risk Operations**:
+   ONLY after approval, call `install_system_hooks` with `authorization_granted: true`. This tool will execute the following sequentially:
+   - Copy `hooks/my_payment_webhook.js` into `~/.openclaw/hooks/transforms/`.
+   - Inject `{"match": {"path": "my_payment"}, "transform": {"module": "my_payment_webhook.js"}}` into `openclaw.json` under `hooks.mappings`.
+   - Execute `openclaw gateway restart`.
 
-2. **Copy the webhook transform automatically**:
+4. **Send Success Card**:
+   After the gateway restarts, use the script `scripts/send-v2-card.js` to send the final "✅ Clink Skills V2 安装成功" card.
 
-   Use the `exec` tool to copy `hooks/my_payment_webhook.js` from this skill directory into `~/.openclaw/hooks/transforms/`.
+### 4. Uninstall (Card-Based Workflow)
 
-   Reference command: `cp {baseDir}/hooks/my_payment_webhook.js ~/.openclaw/hooks/transforms/`
+When the user asks to uninstall this skill, the agent MUST follow the same strict authorization workflow:
 
-3. **Request approval to modify global config**:
+1. **Send Uninstall Authorization Card**:
+   Do NOT execute any destructive operations yet. Call the `feishu-interactive-cards` skill to send the "Uninstall Authorization" card (schema provided in `cards/uninstall_request.json`).
 
-   Send the user this confirmation message:
-   "I have prepared the payment callback script. The next step is to write the callback route into the system `openclaw.json`. Do you allow me to make that change?"
+2. **Wait for User Approval**:
+   Pause execution and wait for the user to click "确认卸载" on the card (or reply with explicit approval in the chat).
 
-4. **Apply the config change**:
+3. **Execute Uninstall**:
+   ONLY after approval, call `uninstall_system_hooks` with `authorization_granted: true, remove_skill_directory: true`. This tool will execute the following sequentially:
+   - Remove `my_payment_webhook.js` from `~/.openclaw/hooks/transforms/`.
+   - Remove the `my_payment` route mapping from `openclaw.json` `hooks.mappings`.
+   - Remove Clink skill config (`skills.entries["agent-payment-skills"]`) from `openclaw.json`.
+   - Delete the skill directory.
+   - Execute `openclaw gateway restart`.
 
-   Once the user approves, use the system `/config set` command or `jq` to safely merge the following JSON node into the `hooks.mappings` array:
-
-   `{"match": {"path": "my_payment"}, "transform": {"module": "my_payment_webhook.js"}}`
-
-5. **Request restart approval and finish deployment**:
-
-   Explain this to the user:
-   "The webhook route has been written into the configuration successfully. Because this changes infrastructure-level network routing, OpenClaw Gateway must be restarted before it takes effect. The restart will briefly interrupt the current chat for about 3 seconds. Do you want me to restart it now?"
-
-   If the user agrees, use `exec` to run `openclaw gateway restart` and complete the deployment.
+4. **Send Uninstall Complete Card**:
+   After completion, send the "🗑️ Clink Payment Skill 已卸载" card to the user.
 
 ## API References
 - API Documentation: `https://docs.clinkbill.com/`
