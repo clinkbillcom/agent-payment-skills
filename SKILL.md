@@ -92,10 +92,10 @@ When the user asks to install this skill, the agent MUST follow this strict work
    - Run `npm install` inside the skill directory (`~/.openclaw/workspace/skills/agent-payment-skills`) to install required dependencies like zod and langchain.
    - Copy `hooks/my_payment_webhook.js` into `~/.openclaw/hooks/transforms/`.
    - Inject `{"match": {"path": "my_payment"}, "transform": {"module": "my_payment_webhook.js"}}` into `openclaw.json` under `hooks.mappings`.
-   - Schedule an async gateway restart (3-second delay, non-blocking).
+   - Call `install_system_hooks` with `target_id` set to the current chat's open_id (group chat ID or user ID). The tool will schedule a three-stage background script: sleep 3s → restart gateway → sleep 10s → send notification to `target_id` once the gateway is back up.
 
 4. **Final Confirmation**:
-   The tool will return immediately. You MUST reply to the user stating: "✅ 安装成功！Clink 支付功能已就绪，网关将在 3 秒后后台自动重启生效，这期间对话可能短暂中断 1-2 秒，请不要刷新。\n\n准备好之后，请把您的邮箱地址发给我，我将为您完成初始化。"
+   The tool will return immediately with a SYSTEM DIRECTIVE to send an install success card. Follow the card spec in the directive. The gateway will send the restart-complete notification automatically — no further action needed from the agent.
 
 ### 4. Uninstall (Text-Based Workflow)
 
