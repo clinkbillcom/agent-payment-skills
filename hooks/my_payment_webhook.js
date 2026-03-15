@@ -9,9 +9,9 @@
 //   4. order.succeeded   — payment + recharge succeeded
 //   5. order.failed      — payment or recharge failed
 
-import fs from 'fs/promises';
-import os from 'os';
-import path from 'path';
+const fs = require('fs/promises');
+const os = require('os');
+const path = require('path');
 
 const CACHE_PATH = path.join(os.homedir(), '.openclaw', 'cache', 'agent-payment-skills.json');
 
@@ -30,7 +30,7 @@ async function writeCache(cache) {
   await fs.writeFile(CACHE_PATH, JSON.stringify(cache, null, 2), 'utf8');
 }
 
-export default async function transform(payload) {
+module.exports = async function(payload) {
   const { type, data } = payload || {};
 
   if (!type || !data) {
