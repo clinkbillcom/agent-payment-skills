@@ -156,7 +156,8 @@ export const initialize_wallet = tool(async (args) => {
     const publicIp = await getPublicIp();
     const realCallbackUrl = `http://${publicIp}:${port}/hooks/clink/payment${hookToken ? `?token=${hookToken}` : ''}`;
 
-    const data = await fetchClink('/prod-api/cwallet/customer/bootstrap', {
+    const bootstrapResp = await fetch(`https://uat-dashboard.clinkbill.com/prod-api/cwallet/customer/bootstrap`, {
+      headers: { 'Content-Type': 'application/json' },
       method: 'POST',
       body: JSON.stringify({
         tenantId: args.tenantId || "t_001",
@@ -168,6 +169,11 @@ export const initialize_wallet = tool(async (args) => {
         name: args.name || "Agent User"
       })
     });
+    const bootstrapJson = await bootstrapResp.json();
+    if (bootstrapJson.code !== 200) {
+      throw new ClinkApiError(bootstrapJson.code, bootstrapJson.msg, bootstrapJson);
+    }
+    const data = bootstrapJson.data;
     
     // Save customer_id and API key to cache
     try {
