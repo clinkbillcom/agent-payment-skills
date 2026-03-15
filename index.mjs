@@ -281,9 +281,7 @@ YOU MUST immediately send a Feishu Interactive Card to the user with the followi
 - Key-Value Rows:
   - Clink 账户: "${env.CLINK_USER_EMAIL || 'N/A'}"
   - 支付方式: "未绑定" (Red)
-- Description: "完成绑定后 Claw 才能通过 Clink 执行充值。"
-- Action Button 1: "绑定支付方式" (Primary, action: url redirect to ${setupUrl})
-- Action Button 2: "稍后再说" (Default)
+- Description: "完成绑定后 Claw 才能通过 Clink 执行充值。\n\n[👉 点击这里绑定支付方式](${setupUrl})"
 
 After sending the card, your turn MUST end with EXACTLY AND ONLY the token NO_REPLY. DO NOT OUTPUT A SINGLE WORD of markdown text before or after the card.
 
@@ -326,9 +324,7 @@ YOU MUST immediately send a Feishu Interactive Card to the user:
 - Template / Style: "🛡️ 查看风控规则" (Blue theme, header h-blue)
 - Key-Value Rows:
   - 风控规则: "未查看" (Orange)
-- Description: "风控规则可限制自动充值的金额和频率，建议配置以保障资金安全。此步骤可选，可随时配置。"
-- Button 1 (Primary): "查看风控规则" (action: url redirect to ${riskUrl})
-- Button 2 (ghost): "跳过"
+- Description: "风控规则可限制自动充值的金额和频率，建议配置以保障资金安全。此步骤可选，可随时配置。\n\n[👉 点击这里配置风控规则](${riskUrl})"
 
 After sending the card, your turn MUST end with exactly and ONLY the token NO_REPLY. DO NOT output any other text.`;
   } catch (err) {
@@ -350,9 +346,7 @@ YOU MUST immediately send a Feishu Interactive Card to the user:
 - Template / Style: "💳 添加支付方式" (Orange/Warning theme)
 - Key-Value Rows:
   - Clink 账户: "${env.CLINK_USER_EMAIL || 'N/A'}"
-- Description: "绑定支付方式后，Clink 将代您自动完成 Token 充值。"
-- Button 1 (Primary): "绑定支付方式" (action: url redirect to ${setupUrl})
-- Button 2 (ghost): "稍后再说"
+- Description: "绑定支付方式后，Clink 将代您自动完成 Token 充值。\n\n[👉 点击这里绑定支付方式](${setupUrl})"
 
 After sending the card, your turn MUST end with exactly and ONLY the token NO_REPLY. DO NOT output any other text.`;
   } catch (err) {
@@ -376,9 +370,7 @@ YOU MUST immediately send a Feishu Interactive Card to the user:
 - Key-Value Rows:
   - 当前支付方式: "${defaultCard ? `${defaultCard.cardScheme} ••••${defaultCard.cardLastFour}` : '未设置'}"
   - 已绑定数量: "${methods.length} 种"
-- Description: "查看已绑定的支付方式，切换默认卡，或添加新的支付方式。"
-- Button 1 (Primary): "管理支付方式" (action: url redirect to ${modifyUrl})
-- Button 2 (ghost): "不用了"
+- Description: "查看已绑定的支付方式，切换默认卡，或添加新的支付方式。\n\n[👉 点击这里管理支付方式](${modifyUrl})"
 
 After sending the card, your turn MUST end with exactly and ONLY the token NO_REPLY. DO NOT output any other text.
 
@@ -662,9 +654,7 @@ The bank requires secondary confirmation. YOU MUST pause the current task and se
   - 银行: "${cardDisplay} 发卡行"
   - 3DS 状态: "等待验证" (Orange)
   - 订单号: "${orderId}"
-- Description: "银行要求对此次充值进行二次身份确认（3DS），任务已暂停等待您完成验证。"
-- Button 1 (Primary): "前往完成 3DS 验证" (action: url redirect to ${redirectUrl})
-- Button 2 (ghost): "取消充值"
+- Description: "银行要求对此次充值进行二次身份确认（3DS），任务已暂停等待您完成验证。\n\n[👉 点击这里完成 3DS 验证](${redirectUrl})"
 
 After sending the card, your turn MUST end with exactly and ONLY the token NO_REPLY. DO NOT output any other text. DO NOT continue until the webhook confirms order.succeeded or order.failed.`;
     }
