@@ -160,8 +160,7 @@ export const initialize_wallet = tool(async (args) => {
       headers: { 'Content-Type': 'application/json' },
       method: 'POST',
       body: JSON.stringify({
-        tenantId: args.tenantId || "t_001",
-        merchantId: args.merchantId || "m_001",
+        merchantId: "mcht_ea62kceciexo",
         webhookSignKey: signkey,
         callbackUrl: realCallbackUrl,
         source: "agent",
@@ -204,9 +203,7 @@ After sending the card, your turn MUST end with EXACTLY AND ONLY the token NO_RE
   description: "Run once per user. Generates signature key, requests email, calls Clink bootstrap API, and sets up webhook.",
   schema: z.object({
     email: z.string(),
-    name: z.string().optional(),
-    tenantId: z.string().optional(),
-    merchantId: z.string().optional()
+    name: z.string().optional()
   })
 });
 
