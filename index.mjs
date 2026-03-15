@@ -915,63 +915,64 @@ export const install_system_hooks = tool(async (args) => {
   }
 
   // Step 3: Write a self-contained Node.js notify script and run it after gateway restarts.
-  // Reads openclaw.json at runtime to get Feishu credentials and previously stored email.
+  // Dynamically reads port and token from openclaw.json at runtime — no hardcoded values.
   const notifyScriptPath = path.join(os.homedir(), '.openclaw', 'cache', 'clink_notify.js');
-  const configPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
   const notifyJsCode = `
 const fs = require('fs');
+const http = require('http');
+const path = require('path');
+const os = require('os');
 
-async function sendFeishuCard() {
-  try {
-    const config = JSON.parse(fs.readFileSync('${configPath}', 'utf8'));
-    const feishuConfig = config.channels.feishu.accounts.feishubot;
-
-    // 动态获取环境里之前存的邮箱（如果有的话）
-    const skillCache = (() => {
-      try { return JSON.parse(fs.readFileSync('${CACHE_PATH}', 'utf8')); } catch { return {}; }
-    })();
-    const userEmail = skillCache.email || '';
-
-    const tokenRes = await fetch('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ app_id: feishuConfig.appId, app_secret: feishuConfig.appSecret })
-    });
-    const token = (await tokenRes.json()).tenant_access_token;
-
-    // 根据有没有邮箱，动态组装提示文字
-    let promptText = '🔐 **最后一步：钱包初始化**\\n请在下方聊天输入框直接回复您的邮箱地址：';
-    let codeBlockText = '';
-    if (userEmail) {
-      promptText = '🔐 **最后一步：钱包初始化**\\n请在下方聊天输入框直接回复您的新邮箱地址。\\n或**一键复制**下方口令，继续使用之前的邮箱绑定：';
-      codeBlockText = \`\\\`\\\`\\\`text\\n使用邮箱：\${userEmail}\\n\\\`\\\`\\\`\`;
-    }
-
-    const elements = [
-      { tag: 'markdown', content: '**Clink 支付组件已满血上线！**\\n底层依赖与 Webhook 路由均已挂载完毕。' },
-      { tag: 'hr' },
-      { tag: 'markdown', content: promptText }
-    ];
-    if (codeBlockText) {
-      elements.push({ tag: 'markdown', content: codeBlockText });
-    }
-
-    const card = {
-      schema: '2.0',
-      header: { title: { tag: 'plain_text', content: '✅ 网关重启完成' }, template: 'green' },
-      body: { elements }
-    };
-
-    await fetch('https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id', {
-      method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ receive_id: '${args.target_id}', msg_type: 'interactive', content: JSON.stringify(card) })
-    });
-  } catch (err) {
-    console.error('Failed to send Feishu card:', err);
-  }
+// 动态读取 OpenClaw 全局配置
+const configPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
+let gatewayPort = 14924;
+let webhookToken = '';
+try {
+  const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  gatewayPort = config.gateway?.port || 14924;
+  webhookToken = config.hooks?.token || '';
+} catch (err) {
+  console.error('Failed to read openclaw.json:', err.message);
 }
-sendFeishuCard();
+
+// 动态读取之前存的邮箱（如果有）
+const cachePath = path.join(os.homedir(), '.openclaw', 'workspace', 'skills', 'agent-payment-skills', 'clink.config.json');
+let userEmail = '';
+try {
+  const cache = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
+  userEmail = cache.email || '';
+} catch {}
+
+// 根据有没有邮箱，动态拼接消息正文
+let message = '✅ **网关重启完毕，Clink 支付组件已满血上线！**\\n\\n🔐 **最后一步：钱包初始化**\\n请在下方输入框直接回复您的邮箱地址：';
+if (userEmail) {
+  message = '✅ **网关重启完毕，Clink 支付组件已满血上线！**\\n\\n🔐 **最后一步：钱包初始化**\\n请在下方输入框直接回复您的新邮箱地址，或**一键复制**下方口令继续使用之前的邮箱：\\n\\n\`\`\`text\\n使用之前的邮箱：' + userEmail + '\\n\`\`\`';
+}
+
+const payload = JSON.stringify({
+  message,
+  channel: "feishu",
+  to: "${args.target_id}"
+});
+
+const headers = {
+  'Content-Type': 'application/json',
+  'Content-Length': Buffer.byteLength(payload)
+};
+if (webhookToken) {
+  headers['Authorization'] = 'Bearer ' + webhookToken;
+}
+
+const req = http.request({
+  hostname: 'localhost',
+  port: gatewayPort,
+  path: '/hooks/agent',
+  method: 'POST',
+  headers
+});
+req.on('error', (e) => { console.error('Failed to send notification:', e.message); });
+req.write(payload);
+req.end();
 `;
   await fs.writeFile(notifyScriptPath, notifyJsCode, 'utf8');
 
@@ -1088,22 +1089,43 @@ export const uninstall_system_hooks = tool(async () => {
   // Step 5: Async delayed restart — detached process, survives gateway self-restart
   const notifyScriptPath = path.join(os.homedir(), '.openclaw', 'cache', 'clink_uninstall_notify.js');
   const notifyJsCode = `
+const fs = require('fs');
 const http = require('http');
+const path = require('path');
+const os = require('os');
+
+// 动态读取 OpenClaw 全局配置
+const configPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
+let gatewayPort = 14924;
+let webhookToken = '';
+try {
+  const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  gatewayPort = config.gateway?.port || 14924;
+  webhookToken = config.hooks?.token || '';
+} catch (err) {
+  console.error('Failed to read openclaw.json:', err.message);
+}
+
 const payload = JSON.stringify({
   message: "🗑️ **卸载已生效**\\n网关已重启完毕，Clink Payment 支付组件及全部配置已彻底清除。若需再次使用，请重新下发安装指令。",
   channel: "feishu",
   to: "${args.target_id}"
 });
+
+const headers = {
+  'Content-Type': 'application/json',
+  'Content-Length': Buffer.byteLength(payload)
+};
+if (webhookToken) {
+  headers['Authorization'] = 'Bearer ' + webhookToken;
+}
+
 const req = http.request({
   hostname: 'localhost',
-  port: 14924,
+  port: gatewayPort,
   path: '/hooks/agent',
   method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-    'Content-Length': Buffer.byteLength(payload),
-    'Authorization': 'Bearer 38heneuihudoij@&^ud'
-  }
+  headers
 });
 req.on('error', () => {});
 req.write(payload);
