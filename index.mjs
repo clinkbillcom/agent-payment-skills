@@ -908,17 +908,63 @@ export const install_system_hooks = tool(async () => {
   }
 
   // Step 3: Write a self-contained Node.js notify script and run it after gateway restarts.
-  // Avoids relying on $PATH or openclaw CLI which may be unavailable in nohup environment.
+  // Reads openclaw.json at runtime to get Feishu credentials and previously stored email.
   const notifyScriptPath = path.join(os.homedir(), '.openclaw', 'cache', 'clink_notify.js');
+  const configPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
   const notifyJsCode = `
-const http = require('http');
-const payload = JSON.stringify({
-  message: "✅ 网关已重启完毕。请在下方输入框中回复您的确认指令。",
-  channel: "feishu",
-  to: "${args.target_id}"
-});
-const req = http.request({ hostname: 'localhost', port: 14924, path: '/hooks/agent', method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }});
-req.write(payload); req.end();
+const fs = require('fs');
+
+async function sendFeishuCard() {
+  try {
+    const config = JSON.parse(fs.readFileSync('${configPath}', 'utf8'));
+    const feishuConfig = config.channels.feishu.accounts.feishubot;
+
+    // 动态获取环境里之前存的邮箱（如果有的话）
+    const skillCache = (() => {
+      try { return JSON.parse(fs.readFileSync('${CACHE_PATH}', 'utf8')); } catch { return {}; }
+    })();
+    const userEmail = skillCache.email || '';
+
+    const tokenRes = await fetch('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ app_id: feishuConfig.appId, app_secret: feishuConfig.appSecret })
+    });
+    const token = (await tokenRes.json()).tenant_access_token;
+
+    // 根据有没有邮箱，动态组装提示文字
+    let promptText = '🔐 **最后一步：钱包初始化**\\n请在下方聊天输入框直接回复您的邮箱地址：';
+    let codeBlockText = '';
+    if (userEmail) {
+      promptText = '🔐 **最后一步：钱包初始化**\\n请在下方聊天输入框直接回复您的新邮箱地址。\\n或**一键复制**下方口令，继续使用之前的邮箱绑定：';
+      codeBlockText = \`\\\`\\\`\\\`text\\n使用邮箱：\${userEmail}\\n\\\`\\\`\\\`\`;
+    }
+
+    const elements = [
+      { tag: 'markdown', content: '**Clink 支付组件已满血上线！**\\n底层依赖与 Webhook 路由均已挂载完毕。' },
+      { tag: 'hr' },
+      { tag: 'markdown', content: promptText }
+    ];
+    if (codeBlockText) {
+      elements.push({ tag: 'markdown', content: codeBlockText });
+    }
+
+    const card = {
+      schema: '2.0',
+      header: { title: { tag: 'plain_text', content: '✅ 网关重启完成' }, template: 'green' },
+      body: { elements }
+    };
+
+    await fetch('https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ receive_id: '${args.target_id}', msg_type: 'interactive', content: JSON.stringify(card) })
+    });
+  } catch (err) {
+    console.error('Failed to send Feishu card:', err);
+  }
+}
+sendFeishuCard();
 `;
   await fs.writeFile(notifyScriptPath, notifyJsCode, 'utf8');
 
@@ -933,8 +979,8 @@ req.write(payload); req.end();
   - Webhook 路由: "已就绪 ✓" (Green)
   - 网关状态: "即将重启" (Orange)
   - 绑定邮箱: "待确认" (Grey)
-- Description: "网关将在 3 秒后自动重启。\\n收到【✅ 网关已重启完毕】的消息后，请在下方直接回复您的绑定邮箱。如果您想使用上下文中曾提供过的邮箱，请一键复制下方口令发送："
-- Markdown Element (Code block): \`\`\`text\\n使用之前的邮箱地址\\n\`\`\`
+- Description: "网关将在 3 秒后自动重启。\\n收到【✅ 网关重启完成】的卡片后，请在下方直接回复您的绑定邮箱。如果您想继续使用之前的邮箱（如果有），请一键复制卡片下方的口令发送。"
+- No action buttons needed.
 
 After sending the card, your turn MUST end with exactly and ONLY the token NO_REPLY. DO NOT output any other text, markdown, or explanation.`;
 }, {
