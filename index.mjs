@@ -156,7 +156,7 @@ export const initialize_wallet = tool(async (args) => {
     const publicIp = await getPublicIp();
     const realCallbackUrl = `http://${publicIp}:${port}/hooks/clink/payment${hookToken ? `?token=${hookToken}` : ''}`;
 
-    const data = await fetchClink('/customer/bootstrap', {
+    const data = await fetchClink('/prod-api/cwallet/customer/bootstrap', {
       method: 'POST',
       body: JSON.stringify({
         tenantId: args.tenantId || "t_001",
