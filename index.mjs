@@ -240,7 +240,8 @@ async function fetchBindingData() {
     method: 'POST',
     headers: {
       "X-Customer-API-Key": env.CLINK_CUSTOMER_API_KEY,
-      "X-Customer-ID": env.CLINK_CUSTOMER_ID
+      "X-Customer-ID": env.CLINK_CUSTOMER_ID,
+      "X-Timestamp": Date.now().toString()
     }
   });
 
