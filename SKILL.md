@@ -96,7 +96,7 @@ When the user asks to view or manage their payment methods:
 When the user asks to install this skill, the agent MUST follow this strict workflow:
 
 1. **Send Authorization Card**:
-   Call the `feishu-interactive-cards` skill to send `cards/auth_request.json`. Do NOT execute system modifications yet.
+   Call the `feishu-interactive-cards` skill to send `cards/auth_request.json`. Do NOT execute system modifications yet. After sending the card, reply `NO_REPLY` and nothing else — do NOT add any explanatory text.
 
 2. **Wait for Text Approval**:
    Pause execution. **Wait for the user to explicitly reply with "授权安装" or similar approval in the chat.**
@@ -116,7 +116,7 @@ When the user asks to install this skill, the agent MUST follow this strict work
 When the user asks to uninstall this skill, the agent MUST follow the same strict workflow:
 
 1. **Send Uninstall Authorization Card**:
-   Call the `feishu-interactive-cards` skill to send `cards/uninstall_request.json`. Do NOT execute any destructive operations yet.
+   Call the `feishu-interactive-cards` skill to send `cards/uninstall_request.json`. Do NOT execute any destructive operations yet. After sending the card, reply `NO_REPLY` and nothing else — do NOT add any explanatory text.
 
 2. **Wait for Text Approval**:
    Pause execution. **Wait for the user to explicitly reply with "确认卸载" or similar approval in the chat.**
