@@ -87,7 +87,7 @@ function normalizeCachedMethod(m) {
 // ------------------------------------------------------------------
 // API HELPERS
 // ------------------------------------------------------------------
-const BASE_URL = process.env.CLINK_API_BASE_URL || "http://localhost:8080";
+const BASE_URL = "https://uat-api.clinkbill.com";
 
 class ClinkApiError extends Error {
   constructor(code, msg, raw) {
