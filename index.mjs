@@ -958,7 +958,8 @@ function sendNotification() {
     const payload = JSON.stringify({
       message,
       channel: "feishu",
-      to: "${args.target_id}"
+      to: "${args.target_id}",
+      deliver: true
     });
 
     const headers = {
@@ -1119,7 +1120,8 @@ try {
 const payload = JSON.stringify({
   message: "🗑️ **卸载已生效**\\n网关已重启完毕，Clink Payment 支付组件及全部配置已彻底清除。若需再次使用，请重新下发安装指令。",
   channel: "feishu",
-  to: "${args.target_id}"
+  to: "${args.target_id}",
+  deliver: true
 });
 
 const headers = {
