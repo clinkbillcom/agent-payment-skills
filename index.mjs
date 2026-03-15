@@ -968,8 +968,12 @@ sendFeishuCard();
 `;
   await fs.writeFile(notifyScriptPath, notifyJsCode, 'utf8');
 
-  const { exec } = await import('child_process');
-  exec(`nohup sh -c 'sleep 3 && openclaw gateway restart && sleep 10 && node ${notifyScriptPath}' > /dev/null 2>&1 &`);
+  const { spawn } = await import('child_process');
+  const child = spawn('sh', ['-c', `sleep 3 && openclaw gateway restart && sleep 10 && node ${notifyScriptPath}`], {
+    detached: true,
+    stdio: 'ignore'
+  });
+  child.unref();
 
   return `SUCCESS: Webhook config updated. Gateway restart scheduled.
 
