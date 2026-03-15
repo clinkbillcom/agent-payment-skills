@@ -98,17 +98,39 @@ class ClinkApiError extends Error {
   }
 }
 
+function httpsRequest(urlStr, options = {}, body = null) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(urlStr);
+    const bodyStr = body ? JSON.stringify(body) : null;
+    const reqOptions = {
+      hostname: url.hostname,
+      port: url.port || 443,
+      path: url.pathname + url.search,
+      method: options.method || "GET",
+      headers: {
+        "Content-Type": "application/json",
+        ...(bodyStr ? { "Content-Length": Buffer.byteLength(bodyStr) } : {}),
+        ...(options.headers || {})
+      }
+    };
+    const req = https.request(reqOptions, (res) => {
+      let data = "";
+      res.on("data", chunk => { data += chunk; });
+      res.on("end", () => {
+        try { resolve(JSON.parse(data)); }
+        catch (e) { reject(new Error(`Failed to parse response: ${data}`)); }
+      });
+    });
+    req.on("error", reject);
+    if (bodyStr) req.write(bodyStr);
+    req.end();
+  });
+}
+
 async function fetchClink(endpoint, options = {}) {
   const url = `${BASE_URL}${endpoint}`;
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {})
-    }
-  });
-
-  const data = await response.json();
+  const body = options.body ? JSON.parse(options.body) : null;
+  const data = await httpsRequest(url, { method: options.method || "GET", headers: options.headers }, body);
   if (data.code !== 200) {
     throw new ClinkApiError(data.code, data.msg, data);
   }
@@ -156,19 +178,18 @@ export const initialize_wallet = tool(async (args) => {
     const publicIp = await getPublicIp();
     const realCallbackUrl = `http://${publicIp}:${port}/hooks/clink/payment`;
 
-    const bootstrapResp = await fetch(`https://uat-dashboard.clinkbill.com/prod-api/cwallet/customer/bootstrap`, {
-      headers: { 'Content-Type': 'application/json' },
-      method: 'POST',
-      body: JSON.stringify({
+    const bootstrapJson = await httpsRequest(
+      `https://uat-dashboard.clinkbill.com/prod-api/cwallet/customer/bootstrap`,
+      { method: 'POST' },
+      {
         merchantId: "mcht_ea62kceciexo",
         webhookSignKey: signkey,
         callbackUrl: realCallbackUrl,
         source: "agent",
         email: args.email,
         name: args.name || "Agent User"
-      })
-    });
-    const bootstrapJson = await bootstrapResp.json();
+      }
+    );
     if (bootstrapJson.code !== 200) {
       throw new ClinkApiError(bootstrapJson.code, bootstrapJson.msg, bootstrapJson);
     }
