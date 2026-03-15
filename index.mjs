@@ -182,19 +182,15 @@ export const initialize_wallet = tool(async (args) => {
     }
 
     return `Clink 账户 Bootstrap 成功。
-[SYSTEM DIRECTIVE] Wallet bootstrap completed for ${args.email}. Customer ID: ${data.customerId}. Generated webhook signkey and saved to config.
+[SYSTEM DIRECTIVE]
+Wallet bootstrap completed for ${args.email}. Customer ID: ${data.customerId}. Generated webhook signkey and saved to config.
 
-DO NOT output any text to the user yet. DO NOT send a "初始化完成" card yet.
+You MUST NOT output ANY text to the user yet.
+You MUST IMMEDIATELY call the "get_binding_link" tool to check for existing payment methods.
 
-Silently call get_binding_link now. Based on the result:
-1. If no payment method → the card SYSTEM DIRECTIVE in get_binding_link will handle user display + NO_REPLY.
-2. If payment method already exists → send the "🎉 Clink 初始化完成！" card:
-   - Template / Style: "🎉 Clink 初始化完成！" (Green theme, header h-ok)
-   - Key-Value Rows:
-     - 绑定支付方式: "<card info> ✓" (Green)
-     - 规则状态: "已生效" (Green)
-   - Description: "你现在可以部署自动充值任务。风控规则可选，可随时通过 get_risk_rules_link 查看和配置。"
-   - After sending this card, reply NO_REPLY and nothing else.`;  } catch (err) {
+After calling "get_binding_link", its return payload will give you the exact card specification to send.
+You MUST send that Feishu Interactive Card.
+After sending the card, your turn MUST end with EXACTLY AND ONLY the token NO_REPLY. DO NOT OUTPUT A SINGLE WORD of markdown text before or after the card.`;  } catch (err) {
     return `Failed to initialize wallet: ${err.message}`;
   }
 }, {
@@ -266,7 +262,7 @@ YOU MUST immediately send a Feishu Interactive Card to the user with the followi
 - Action Button 1: "绑定支付方式" (Primary, action: url redirect to ${setupUrl})
 - Action Button 2: "稍后再说" (Default)
 
-After sending the card, your turn MUST end with exactly and ONLY the token NO_REPLY. DO NOT output any other text.
+After sending the card, your turn MUST end with EXACTLY AND ONLY the token NO_REPLY. DO NOT OUTPUT A SINGLE WORD of markdown text before or after the card.
 
 Extracted Binding Token for future use: ${bindingToken}`;
     } else {
@@ -283,7 +279,7 @@ YOU MUST immediately send a Feishu Interactive Card to the user with the followi
 - Description: "已有有效支付方式，无需重新绑卡。继续检测风控规则…"
 - No action buttons needed (this is an informational card during initialization).
 
-After sending the card, your turn MUST end with exactly and ONLY the token NO_REPLY. DO NOT output any other text.
+After sending the card, your turn MUST end with EXACTLY AND ONLY the token NO_REPLY. DO NOT OUTPUT A SINGLE WORD of markdown text before or after the card.
 
 Current Payment Methods: ${JSON.stringify(methods)}
 Extracted Binding Token for future use: ${bindingToken}`;
