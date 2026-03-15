@@ -116,7 +116,6 @@ async function fetchClink(endpoint, options = {}) {
 }
 
 // ------------------------------------------------------------------
-// ------------------------------------------------------------------
 // PUBLIC IP HELPER
 // ------------------------------------------------------------------
 function getPublicIp() {
@@ -150,11 +149,12 @@ export const initialize_wallet = tool(async (args) => {
 
   // Call Bootstrap API
   try {
-    const openclawConfig = JSON.parse(await fs.readFile(await getConfigPath(), 'utf8').catch(() => '{}'));
+    // 动态拼接真实回调地址
+    const openclawConfig = await loadConfig();
     const port = openclawConfig.gateway?.port || 14924;
     const hookToken = openclawConfig.hooks?.token || '';
     const publicIp = await getPublicIp();
-    const realCallbackUrl = args.callbackUrl || `http://${publicIp}:${port}/hooks/clink/payment${hookToken ? `?token=${hookToken}` : ''}`;
+    const realCallbackUrl = `http://${publicIp}:${port}/hooks/clink/payment${hookToken ? `?token=${hookToken}` : ''}`;
 
     const data = await fetchClink('/customer/bootstrap', {
       method: 'POST',
@@ -196,12 +196,11 @@ After sending the card, your turn MUST end with EXACTLY AND ONLY the token NO_RE
 }, {
   name: "initialize_wallet",
   description: "Run once per user. Generates signature key, requests email, calls Clink bootstrap API, and sets up webhook.",
-  schema: z.object({ 
+  schema: z.object({
     email: z.string(),
     name: z.string().optional(),
     tenantId: z.string().optional(),
-    merchantId: z.string().optional(),
-    callbackUrl: z.string().optional()
+    merchantId: z.string().optional()
   })
 });
 
