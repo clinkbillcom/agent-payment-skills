@@ -182,7 +182,6 @@ export const initialize_wallet = tool(async (args) => {
       `https://uat-dashboard.clinkbill.com/prod-api/cwallet/customer/bootstrap`,
       { method: 'POST' },
       {
-        merchantId: "mcht_ea62kceciexo",
         webhookSignKey: signkey,
         callbackUrl: realCallbackUrl,
         source: "agent",
