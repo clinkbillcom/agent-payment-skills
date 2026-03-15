@@ -1076,7 +1076,7 @@ export const uninstall_system_hooks = tool(async () => {
     results.push(`Skill config: FAILED to clean — ${err.message}`);
   }
 
-  // Step 4: Remove skill cache file
+  // Step 4: Remove skill cache file and stale notify scripts
   try {
     await fs.unlink(CACHE_PATH);
     results.push("Skill cache: removed ✓");
@@ -1086,6 +1086,13 @@ export const uninstall_system_hooks = tool(async () => {
     } else {
       results.push(`Skill cache: FAILED to remove — ${err.message}`);
     }
+  }
+
+  // Remove stale cached notify scripts so next install always generates fresh versions
+  for (const script of ['clink_notify.js', 'clink_uninstall_notify.js']) {
+    try {
+      await fs.unlink(path.join(os.homedir(), '.openclaw', 'cache', script));
+    } catch {}
   }
 
   // Step 5: Remove skill directory
