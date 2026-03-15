@@ -4,6 +4,7 @@ import crypto from "crypto";
 import fs from "fs/promises";
 import path from "path";
 import os from "os";
+import https from "https";
 
 // ------------------------------------------------------------------
 // CONFIG HELPERS
@@ -115,6 +116,20 @@ async function fetchClink(endpoint, options = {}) {
 }
 
 // ------------------------------------------------------------------
+// ------------------------------------------------------------------
+// PUBLIC IP HELPER
+// ------------------------------------------------------------------
+function getPublicIp() {
+  return new Promise((resolve) => {
+    https.get('https://api.ipify.org', (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => resolve(data.trim()));
+    }).on('error', () => resolve('127.0.0.1'));
+  });
+}
+
+// ------------------------------------------------------------------
 // PHASE 1 TOOLS
 // ------------------------------------------------------------------
 
@@ -135,13 +150,19 @@ export const initialize_wallet = tool(async (args) => {
 
   // Call Bootstrap API
   try {
+    const openclawConfig = JSON.parse(await fs.readFile(await getConfigPath(), 'utf8').catch(() => '{}'));
+    const port = openclawConfig.gateway?.port || 14924;
+    const hookToken = openclawConfig.hooks?.token || '';
+    const publicIp = await getPublicIp();
+    const realCallbackUrl = args.callbackUrl || `http://${publicIp}:${port}/hooks/clink/payment${hookToken ? `?token=${hookToken}` : ''}`;
+
     const data = await fetchClink('/customer/bootstrap', {
       method: 'POST',
       body: JSON.stringify({
         tenantId: args.tenantId || "t_001",
         merchantId: args.merchantId || "m_001",
         webhookSignKey: signkey,
-        callbackUrl: args.callbackUrl || "https://example.com/cwallet/callback",
+        callbackUrl: realCallbackUrl,
         source: "agent",
         email: args.email,
         name: args.name || "Agent User"
