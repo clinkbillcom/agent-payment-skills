@@ -918,11 +918,13 @@ export const install_system_hooks = tool(async () => {
   const notifyScriptPath = path.join(os.homedir(), '.openclaw', 'cache', 'clink_notify.js');
   const notifyJsCode = `
 const http = require('http');
+
 const payload = JSON.stringify({
-  message: "✅ 网关重启完毕，Clink 支付组件已满血上线！请发送您的邮箱地址进行最后一步的钱包初始化。",
+  message: "✅ **网关重启完毕，Clink 支付组件已满血上线！**\\n\\n🔐 **最后一步：钱包初始化**\\n请在下方输入框直接回复您的邮箱地址（如果您之前已提供，请复制并发送下方口令）：\\n\\n\`\`\`text\\n使用之前的邮箱地址\\n\`\`\`",
   channel: "feishu",
   to: "${args.target_id}"
 });
+
 const req = http.request({
   hostname: 'localhost',
   port: 14924,
@@ -934,6 +936,11 @@ const req = http.request({
     'Authorization': 'Bearer 38heneuihudoij@&^ud'
   }
 });
+
+req.on('error', (e) => {
+  console.error('Failed to send text notification:', e.message);
+});
+
 req.write(payload);
 req.end();
 `;
