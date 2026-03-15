@@ -166,12 +166,11 @@ export const initialize_wallet = tool(async (args) => {
     return `Clink 账户 Bootstrap 成功。
 [SYSTEM DIRECTIVE] Wallet bootstrap completed for ${args.email}. Customer ID: ${data.customerId}. Generated webhook signkey and saved to config.
 
-DO NOT send a "初始化完成" card yet. Wait for payment method to be bound first.
+DO NOT output any text to the user yet. DO NOT send a "初始化完成" card yet.
 
-Next steps you MUST follow:
-1. Call get_binding_link to check if a payment method is already bound.
-2. If no payment method → send the "💳 需要绑定支付方式" card and wait for the user to bind one (payment_method.added webhook will automatically send the initialization complete card).
-3. If payment method already exists → send the "🎉 Clink 初始化完成！" card:
+Silently call get_binding_link now. Based on the result:
+1. If no payment method → the card SYSTEM DIRECTIVE in get_binding_link will handle user display + NO_REPLY.
+2. If payment method already exists → send the "🎉 Clink 初始化完成！" card:
    - Template / Style: "🎉 Clink 初始化完成！" (Green theme, header h-ok)
    - Key-Value Rows:
      - 绑定支付方式: "<card info> ✓" (Green)
