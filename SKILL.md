@@ -86,7 +86,16 @@ When the user requests a recharge or another skill triggers an auto top-up:
 1. **Pre-Check:** Call `pre_check_account` to verify the account is ready. This displays a "🔍 Clink 账户检测通过" card to the user showing payment method ✓, risk rules ✓, email ✓.
    - If pre-check fails (no card bound, wallet not initialized), follow the prompts to fix the issue before proceeding.
 2. **Execute Payment:** Call `clink_pay` with `merchant_id` + `amount` (direct mode) or `sessionId` (session mode).
-3. **Wait for Result:** The payment result comes asynchronously via webhook:
+3. **After `clink_pay` returns — IMMEDIATELY send a Feishu Interactive Card** (regardless of whether a webhook has arrived yet):
+   - Template / Style: "⏳ 充值处理中" (Blue theme)
+   - Key-Value Rows:
+     - 充值金额: the requested amount + currency (e.g. "$10.00 USD")
+     - 商户: merchant name
+     - 订单状态: "处理中…"
+   - Description: "已提交至支付网关，正在等待银行确认。结果将通过通知自动推送。"
+   - No action buttons needed.
+   - After sending this card, reply `NO_REPLY` and wait for the webhook.
+4. **Wait for Result:** The payment result comes asynchronously via webhook:
    - `order.succeeded` → Send "✅ 支付成功" card, then use the merchant's skill/API to confirm recharge is credited.
    - `order.failed` → Send "❌ 充值失败" card with order reference for support.
    - `flag3DS=1` (synchronous) → Send "🔐 3DS 验证" card with link, wait for webhook.
