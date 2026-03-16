@@ -312,11 +312,11 @@ YOU MUST immediately send a Feishu Interactive Card to the user with the followi
 - Key-Value Rows:
   - 支付方式: "${cardDisplay} ✓" (Green)
   - 邮箱: "${env.CLINK_USER_EMAIL || 'N/A'} ✓" (Green)
-  - 绑定时间: "已绑定"
+  - 绑定状态: "已绑定"
 - Description: "已有有效支付方式，无需重新绑卡。继续检测风控规则…"
 - No action buttons needed (this is an informational card during initialization).
 
-After sending the card, your turn MUST end with EXACTLY AND ONLY the token NO_REPLY. DO NOT OUTPUT A SINGLE WORD of markdown text before or after the card.
+After sending the card, you MUST immediately call get_risk_rules_link to continue the initialization flow. Do NOT output NO_REPLY here.
 
 Current Payment Methods: ${JSON.stringify(methods)}
 Extracted Binding Token for future use: ${bindingToken}`;
