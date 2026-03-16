@@ -19,7 +19,11 @@ const CACHE_PATH = path.join(os.homedir(), '.openclaw', 'workspace', 'skills', '
 async function readCache() {
   try {
     const content = await fs.readFile(CACHE_PATH, 'utf8');
-    return JSON.parse(content);
+    const parsed = JSON.parse(content);
+    // Ensure payment_methods array always exists (initialize_wallet writes cache without it)
+    if (!Array.isArray(parsed.payment_methods)) parsed.payment_methods = [];
+    if (parsed.default_payment_method_id === undefined) parsed.default_payment_method_id = null;
+    return parsed;
   } catch {
     return { payment_methods: [], default_payment_method_id: null, cached_at: null };
   }
