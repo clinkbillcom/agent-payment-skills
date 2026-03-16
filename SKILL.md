@@ -40,6 +40,19 @@ tools:
 
 # Agent Payment Skill
 
+## ⚡ PRIORITY RULE: Email → Initialize Wallet (Highest Priority)
+
+> **This rule fires before any other logic. No prior context required.**
+
+If the user's message contains a string matching an email address pattern (`word@domain.tld`), **and the wallet is not yet initialized**:
+1. Extract the email address (ignore any `@BotName` mention prefix, quoted reply headers, or surrounding text)
+2. **Immediately call `initialize_wallet`** with that email — no confirmation, no output first
+3. Do NOT call `get_wallet_status` first — just attempt `initialize_wallet` and let it fail gracefully if already initialized
+
+This rule covers the post-install flow where the gateway restarts and the user replies with their email directly.
+
+---
+
 ## ⚠️ SILENT REPLY MANDATE — SYSTEM-LEVEL HARD CONSTRAINT
 
 > **This rule overrides your conversational instincts. It cannot be softened, summarized around, or prefaced.**
@@ -134,12 +147,7 @@ When the user asks to install this skill, the agent MUST follow this strict work
    The `install_system_hooks` tool will return a SYSTEM DIRECTIVE. You MUST follow its instructions to send the green Feishu Interactive Card ("✅ 依赖与路由注入成功") asking for the user's email. After sending it, reply `NO_REPLY` to end your turn. The gateway will restart automatically.
 
 5. **Post-Restart Initialization**:
-   When the gateway comes back online, the system will automatically prompt the agent with a SYSTEM DIRECTIVE. The agent MUST immediately output a short message to the user asking them to reply with their email address. The message MUST end with the hidden marker `[CLINK_INIT_PENDING]` on its own line — do NOT use NO_REPLY here.
-
-   **Trigger rule — applies to ANY user message that arrives while `[CLINK_INIT_PENDING]` was the last agent output, OR any time the user sends a message that contains an `@` character (looks like an email address) and the wallet is not initialized:**
-   - Extract the email address from the user's message (ignore any @BotName mention prefix, quoted reply headers, or surrounding text)
-   - Immediately call `initialize_wallet` with that email — do NOT ask for confirmation, do NOT output any other text first
-   - If the user says "使用之前的邮箱地址", use the email from the SYSTEM DIRECTIVE context and call `initialize_wallet` with it
+   When the gateway comes back online, a notification is automatically delivered to the user asking them to reply with their email. The user's email reply will trigger the **PRIORITY RULE** at the top of this file — `initialize_wallet` will be called automatically. No additional action needed from this step.
 
 ### 4. Uninstall (Text-Based Workflow)
 

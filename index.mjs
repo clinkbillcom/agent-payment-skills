@@ -1027,10 +1027,10 @@ function post(payload) {
 }
 
 async function sendNotification() {
-  // 第一条：直接发给用户看的通知（deliver:true 不经过 LLM）
+  // 只发一条 deliver 消息直接给用户看，不再发第二条 agentContext 唤醒消息
+  // （agentContext 会与用户的邮箱回复产生竞争，导致第一条邮箱被忽略）
+  // SKILL.md 的 fallback rule 会在用户发送邮箱时无条件触发 initialize_wallet
   await post({ message: userMessage, channel: "feishu", to: "${args.target_id}", deliver: true });
-  // 第二条：唤醒 agent 并注入安装后上下文，使其能正确响应用户的邮箱回复
-  await post({ message: agentContext, channel: "feishu", to: "${args.target_id}" });
 }
 
 sendNotification().catch(console.error);
