@@ -675,11 +675,29 @@ The bank requires secondary confirmation. YOU MUST pause the current task and se
 After sending the card, your turn MUST end with exactly and ONLY the token NO_REPLY. DO NOT output any other text. DO NOT continue until the webhook confirms order.succeeded or order.failed.`;
     }
 
-    return `Payment execution request submitted successfully.
+    const orderId = data.paySuccessInfo?.orderId || data.orderId || "N/A";
+    const merchantName = data.paySuccessInfo?.merchantName || args.merchant_id || "商户";
+    const amtDisplay = `${data.paySuccessInfo?.currencySymbol || "$"}${data.paySuccessInfo?.amount || args.amount}`;
+    const cardInfo = (() => {
+      const pmd = data.channelPaymentResponse?.paymentMethodDetail?.card || {};
+      const psi = data.paySuccessInfo || {};
+      return `${pmd.cardScheme || psi.cardScheme || "CARD"} ••••${pmd.last4No || psi.cardLastFour || "????"}`;
+    })();
 
-[SYSTEM DIRECTIVE]
-The payment is now processing. DO NOT send a success Feishu card yet.
-You must pause your current flow and wait for the asynchronous Webhook to confirm the final payment status (it will send the success/failure cards automatically).`;
+    return `[SYSTEM DIRECTIVE] Payment submitted successfully. Order is now processing.
+YOU MUST immediately send a Feishu Interactive Card to the user:
+- Template / Style: "⏳ 充值处理中" (Blue theme)
+- Key-Value Rows:
+  - 充值金额: "${amtDisplay}"
+  - 商户: "${merchantName}"
+  - 扣款方式: "${cardInfo}"
+  - 订单状态: "处理中…" (Orange)
+  - 订单号: "${orderId}"
+- Description: "已提交至支付网关，正在等待银行确认。结果将通过通知自动推送。"
+- No action buttons needed.
+
+After sending the card, your turn MUST end with exactly and ONLY the token NO_REPLY.
+DO NOT output any other text. DO NOT send a success/failure card — wait for the async webhook.`;
   } catch (err) {
     const code = err instanceof ClinkApiError ? err.code : null;
     const currency = args.currency || "USD";
