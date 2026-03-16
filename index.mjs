@@ -155,7 +155,9 @@ function getPublicIp() {
 // ------------------------------------------------------------------
 
 export const initialize_wallet = tool(async (args) => {
-  const signkey = crypto.randomBytes(32).toString('hex');
+  // Use openclaw.json hooks.token as webhookSignKey so it matches the hook mapping token
+  const openclawConfig = await loadConfig();
+  const signkey = openclawConfig.hooks?.token || crypto.randomBytes(32).toString('hex');
 
   // Save signkey to skill cache (not openclaw.json env)
   try {
@@ -171,10 +173,7 @@ export const initialize_wallet = tool(async (args) => {
 
   // Call Bootstrap API
   try {
-    // 动态拼接真实回调地址
-    const openclawConfig = await loadConfig();
     const port = openclawConfig.gateway?.port || 14924;
-    const hookToken = openclawConfig.hooks?.token || '';
     const publicIp = await getPublicIp();
     const realCallbackUrl = `http://${publicIp}:${port}/hooks/clink/payment`;
 
