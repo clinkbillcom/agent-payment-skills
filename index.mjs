@@ -890,9 +890,9 @@ After sending the card, your turn MUST end with exactly and ONLY the token NO_RE
   }
 }, {
   name: "clink_pay",
-  description: "Execute a payment via Clink. Supports two modes — direct mode (merchant_id + amount + currency) and session mode (sessionId from merchant, amount/currency pre-validated). Used by other skills for auto top-up. IMPORTANT: If merchant_id is not known, call the `modelmax-media.get_merchant_id` tool first to obtain it before invoking clink_pay.",
+  description: "Execute a payment via Clink. Supports two modes — direct mode (merchant_id + amount + currency) and session mode (sessionId from merchant, amount/currency pre-validated). Used by other skills for auto top-up. IMPORTANT: merchant_id MUST always be obtained by calling the merchant's tool (e.g. modelmax-media.get_merchant_id) immediately before invoking clink_pay. Never reuse a merchant_id from memory or conversation history.",
   schema: z.object({
-    merchant_id: z.string().optional().describe("Merchant ID to recharge. Required in direct mode — if unknown, call modelmax-media.get_merchant_id first to obtain it. Optional in session mode (validated against session if provided)."),
+    merchant_id: z.string().optional().describe("Merchant ID to recharge. Required in direct mode — MUST be fetched fresh via the merchant's tool (e.g. modelmax-media.get_merchant_id) each time, never taken from memory or context. Optional in session mode (validated against session if provided)."),
     amount: z.number().describe("Recharge amount. Required in direct mode; in session mode the session amount is used but this is still needed for display."),
     currency: z.string().optional().describe("Currency code, e.g. USD. Defaults to USD. In session mode, session currency is used."),
     sessionId: z.string().optional().describe("Charge session ID created by the merchant. When provided, uses session mode (amount/currency from session)."),

@@ -66,7 +66,7 @@ When a user asks to top up / recharge any of the following merchants, you MUST a
 
 **Routing rule**: Any user request like "给 ModelMax 充值", "recharge ModelMax", "top up my ModelMax account", or a 402 response from any supported merchant skill, MUST trigger the following flow:
 1. Call `pre_check_account`
-2. Get `merchant_id` via the merchant's tool (see table above)
+2. **Always call** the merchant's tool to obtain `merchant_id` (see table above). Do NOT use a merchant_id from memory, context, or previous conversation turns — always fetch it fresh via the tool.
 3. Call `clink_pay` with the merchant_id and requested amount
 
 ## Instructions & Workflows
