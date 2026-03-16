@@ -30,11 +30,11 @@ async function writeCache(cache) {
   await fs.writeFile(CACHE_PATH, JSON.stringify(cache, null, 2), 'utf8');
 }
 
-module.exports = async function(payload) {
-  const { type, data } = payload || {};
+module.exports = async function(ctx) {
+  const { type, data } = ctx.payload || {};
 
   if (!type || !data) {
-    return { action: "wake", text: "[Clink Webhook] Received unknown payload with no type or data." };
+    return { kind: "wake", text: "[Clink Webhook] Received unknown payload with no type or data." };
   }
 
   switch (type) {
@@ -62,7 +62,7 @@ module.exports = async function(payload) {
       } catch {}
 
       return {
-        action: "agent",
+        kind: "agent",
         name: "Clink",
         message: `[Clink Webhook] 绑卡成功回调。
 
@@ -111,7 +111,7 @@ Card 2 (initialization complete):
       } catch {}
 
       return {
-        action: "agent",
+        kind: "agent",
         name: "Clink",
         message: `[Clink Webhook] 默认支付方式已变更。
 
@@ -128,7 +128,7 @@ Card 2 (initialization complete):
     case "order.created": {
       const amt = formatAmount(data);
       return {
-        action: "agent",
+        kind: "agent",
         name: "Clink",
         message: `[Clink Webhook] 充值订单已创建。
 
@@ -150,7 +150,7 @@ DO NOT send a final success/failure card yet. Wait for order.succeeded or order.
       const card = formatCard(data);
 
       return {
-        action: "agent",
+        kind: "agent",
         name: "Clink",
         message: `[Clink Webhook] 支付成功回调（扣款完成，等待商户到账确认）。
 
@@ -190,7 +190,7 @@ DO NOT send a "充值成功" card until the merchant confirms the recharge is cr
       const isCharged = status === "charged" || status === "paid" || data.chargeStatus === "succeeded";
 
       return {
-        action: "agent",
+        kind: "agent",
         name: "Clink",
         message: `[Clink Webhook] 充值失败回调。
 
@@ -226,7 +226,7 @@ YOU MUST immediately send a Feishu Interactive Card to the user:
       } catch {}
 
       return {
-        action: "agent",
+        kind: "agent",
         name: "Clink",
         message: `[Clink Webhook] 风控规则已更新。
 
@@ -254,7 +254,7 @@ YOU MUST immediately send a Feishu Interactive Card to the user:
     // ─── Unknown event type ───
     default: {
       return {
-        action: "agent",
+        kind: "agent",
         name: "Clink",
         message: `[Clink Webhook] 收到未知事件类型: ${type}\n\nPayload: ${JSON.stringify(data).slice(0, 500)}\n\n[SYSTEM DIRECTIVE] Unknown Clink webhook event. Log this for debugging but do not send a card to the user.`
       };
