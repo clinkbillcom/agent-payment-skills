@@ -1,19 +1,19 @@
 {
   "schema": "2.0",
   "header": {
-    "title": { "tag": "plain_text", "content": "⚠️ 核心系统变更授权" },
-    "template": "orange"
+    "title": { "tag": "plain_text", "content": "🔌 安装 Clink Payment Skill" },
+    "template": "blue"
   },
   "body": {
     "elements": [
       {
         "tag": "markdown",
-        "content": "**Clink Payment Skill 需要以下系统权限以完成安装：**\n1. 注入 Webhook 拦截器\n2. 修改全局路由配置\n3. 重启 OpenClaw 网关服务"
+        "content": "**安装此组件需要以下授权：**\n1. 注册 Webhook 回调路由\n2. 写入网关配置文件\n3. 重启网关进程使配置生效"
       },
       { "tag": "hr" },
       {
         "tag": "markdown",
-        "content": "🔐 **安全校验**：\n为防止系统误操作，请在下方聊天输入框直接回复 <font color='red'>**\"授权安装\"**</font> 以确认执行底层配置变更。"
+        "content": "请在聊天输入框回复 **\"授权安装\"** 以确认。"
       }
     ]
   }
