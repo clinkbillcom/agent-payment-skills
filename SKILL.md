@@ -56,6 +56,19 @@ This rule applies to **every** card sent by this skill: balance cards, payment s
 
 This skill provides any compatible AI agent with the ability to manage payments and top-ups via the Clink platform.
 
+## Supported Merchants
+
+When a user asks to top up / recharge any of the following merchants, you MUST automatically route the payment through this skill (agent-payment-skills). Do NOT ask the user to pay manually.
+
+| Merchant | How to get merchant_id | How to confirm recharge |
+|---|---|---|
+| **ModelMax** | Call `modelmax-media.get_merchant_id` | Call `modelmax-media.check_recharge_status` with order_id |
+
+**Routing rule**: Any user request like "给 ModelMax 充值", "recharge ModelMax", "top up my ModelMax account", or a 402 response from any supported merchant skill, MUST trigger the following flow:
+1. Call `pre_check_account`
+2. Get `merchant_id` via the merchant's tool (see table above)
+3. Call `clink_pay` with the merchant_id and requested amount
+
 ## Instructions & Workflows
 
 ### 1. Initialization (Runs once per user)

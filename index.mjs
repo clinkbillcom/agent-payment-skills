@@ -90,6 +90,17 @@ function normalizeCachedMethod(m) {
 // ------------------------------------------------------------------
 const BASE_URL = "https://uat-api.clinkbill.com";
 
+// Supported merchant registry
+// Each entry describes how to obtain the merchant_id and confirm recharge via agent tool calls.
+const SUPPORTED_MERCHANTS = [
+  {
+    name: "ModelMax",
+    description: "AI media generation platform (images & videos)",
+    get_merchant_id_tool: "modelmax-media.get_merchant_id",
+    check_recharge_tool: "modelmax-media.check_recharge_status"
+  }
+];
+
 class ClinkApiError extends Error {
   constructor(code, msg, raw) {
     super(msg || `Clink API Error (code: ${code})`);
