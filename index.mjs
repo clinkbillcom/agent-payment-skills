@@ -29,7 +29,7 @@ async function saveConfig(config) {
   const configPath = await getConfigPath();
   try {
     await fs.mkdir(path.dirname(configPath), { recursive: true });
-  } catch (err) {}
+  } catch (err) { await logError('saveConfig/mkdir', err); }
   await fs.writeFile(configPath, JSON.stringify(config, null, 2), 'utf8');
 }
 
@@ -42,7 +42,7 @@ async function getPaymentEnv() {
     if (cache?.customer_id) env.CLINK_CUSTOMER_ID = cache.customer_id;
     if (cache?.customer_api_key) env.CLINK_CUSTOMER_API_KEY = cache.customer_api_key;
     if (cache?.webhook_signkey) env.CLINK_WEBHOOK_SIGNKEY = cache.webhook_signkey;
-  } catch {}
+  } catch (err) { await logError('getPaymentEnv/readCache', err); }
   return env;
 }
 
@@ -61,13 +61,32 @@ async function updatePaymentEnv(updates) {
 // ------------------------------------------------------------------
 // PAYMENT METHODS CACHE HELPERS
 // ------------------------------------------------------------------
-const CACHE_PATH = path.join(os.homedir(), '.openclaw', 'workspace', 'skills', 'agent-payment-skills', 'clink.config.json');
+const SKILL_DIR = path.join(os.homedir(), '.openclaw', 'workspace', 'skills', 'agent-payment-skills');
+const CACHE_PATH = path.join(SKILL_DIR, 'clink.config.json');
+const LOG_PATH = path.join(SKILL_DIR, 'error.log');
+
+async function logRequest(context, payload, response) {
+  const entry = {
+    time: new Date().toISOString(),
+    context,
+    request: payload,
+    response,
+  };
+  const line = JSON.stringify(entry) + '\n';
+  try { await fs.appendFile(LOG_PATH, line, 'utf8'); } catch {}
+}
+
+async function logError(context, error) {
+  const line = `[${new Date().toISOString()}] [${context}] ${error instanceof Error ? error.stack || error.message : String(error)}\n`;
+  try { await fs.appendFile(LOG_PATH, line, 'utf8'); } catch {}
+}
 
 async function readPaymentMethodsCache() {
   try {
     const content = await fs.readFile(CACHE_PATH, 'utf8');
     return JSON.parse(content);
-  } catch {
+  } catch (err) {
+    await logError('readPaymentMethodsCache', err);
     return null;
   }
 }
@@ -199,6 +218,7 @@ async function handle_initialize_wallet(args) {
     cache.cached_at = new Date().toISOString();
     await fs.writeFile(CACHE_PATH, JSON.stringify(cache, null, 2), 'utf8');
   } catch (err) {
+    await logError('initialize_wallet/saveInitialCache', err);
     return `Failed to save to cache: ${err.message}`;
   }
 
@@ -207,17 +227,19 @@ async function handle_initialize_wallet(args) {
     const publicIp = await getPublicIp();
     const realCallbackUrl = `http://${publicIp}:${port}/hooks/clink/payment`;
 
-    const bootstrapJson = await httpsRequest(
-      `${BASE_URL}/agent/cwallet/customer/bootstrap`,
-      { method: 'POST' },
-      {
+    const bootstrapPayload = {
         webhookSignKey: signkey,
         callbackUrl: realCallbackUrl,
         source: "agent",
         email: args.email,
         name: args.name || "Agent User"
-      }
+      };
+    const bootstrapJson = await httpsRequest(
+      `${BASE_URL}/agent/cwallet/customer/bootstrap`,
+      { method: 'POST' },
+      bootstrapPayload
     );
+    await logRequest('initialize_wallet/bootstrap', bootstrapPayload, bootstrapJson);
     if (bootstrapJson.code !== 200) {
       throw new ClinkApiError(bootstrapJson.code, bootstrapJson.msg, bootstrapJson);
     }
@@ -231,6 +253,7 @@ async function handle_initialize_wallet(args) {
       await fs.mkdir(path.dirname(CACHE_PATH), { recursive: true });
       await fs.writeFile(CACHE_PATH, JSON.stringify(cache, null, 2), 'utf8');
     } catch (err) {
+      await logError('initialize_wallet/saveCustomerData', err);
       return `Failed to save customer data to cache: ${err.message}`;
     }
 
@@ -245,6 +268,7 @@ After calling "get_binding_link", its return payload will give you the exact car
 You MUST send that Feishu Interactive Card.
 After sending the card, your turn MUST end with EXACTLY AND ONLY the token NO_REPLY. DO NOT OUTPUT A SINGLE WORD of markdown text before or after the card.`;
   } catch (err) {
+    await logError('initialize_wallet', err);
     return `Failed to initialize wallet: ${err.message}`;
   }
 }
@@ -295,6 +319,7 @@ Current Payment Methods: ${JSON.stringify(methods)}
 Extracted Binding Token for future use: ${bindingToken}`;
     }
   } catch (err) {
+    await logError('get_binding_link', err);
     return `Failed to get binding link: ${err.message}`;
   }
 }
@@ -313,6 +338,7 @@ YOU MUST immediately send a Feishu Interactive Card to the user:
 
 After sending the card, your turn MUST end with exactly and ONLY the token NO_REPLY. DO NOT output any other text.`;
   } catch (err) {
+    await logError('get_risk_rules_link', err);
     return `Failed to get risk rules link: ${err.message}`;
   }
 }
@@ -331,6 +357,7 @@ YOU MUST immediately send a Feishu Interactive Card to the user:
 
 After sending the card, your turn MUST end with exactly and ONLY the token NO_REPLY. DO NOT output any other text.`;
   } catch (err) {
+    await logError('get_payment_method_setup_link', err);
     return `Failed to get payment method setup link: ${err.message}`;
   }
 }
@@ -353,6 +380,7 @@ After sending the card, your turn MUST end with exactly and ONLY the token NO_RE
 
 Current Payment Methods: ${JSON.stringify(methods)}`;
   } catch (err) {
+    await logError('get_payment_method_modify_link', err);
     return `Failed to get payment method modify link: ${err.message}`;
   }
 }
@@ -368,6 +396,7 @@ async function handle_list_payment_methods(args) {
     });
     return `Payment Methods for ${data.email}:\n${JSON.stringify(data.paymentMethods, null, 2)}`;
   } catch (err) {
+    await logError('list_payment_methods', err);
     return `Failed to list payment methods: ${err.message}`;
   }
 }
@@ -386,6 +415,7 @@ YOU MUST send a Feishu Interactive Card to the user with the following details:
 
 Raw Data: ${JSON.stringify(data)}`;
   } catch (err) {
+    await logError('get_payment_method_detail', err);
     return `Failed to get payment method detail: ${err.message}`;
   }
 }
@@ -399,6 +429,7 @@ async function handle_update_payment_method(args) {
     });
     return `Payment method updated successfully: ${data}`;
   } catch (err) {
+    await logError('update_payment_method', err);
     return `Failed to update payment method: ${err.message}`;
   }
 }
@@ -412,6 +443,7 @@ async function handle_delete_payment_method(args) {
     });
     return `Payment method deleted successfully: ${data}`;
   } catch (err) {
+    await logError('delete_payment_method', err);
     return `Failed to delete payment method: ${err.message}`;
   }
 }
@@ -433,6 +465,7 @@ After sending the card, your turn MUST end with exactly and ONLY the token NO_RE
 
 Raw Data: ${data}`;
   } catch (err) {
+    await logError('set_default_payment_method', err);
     return `Failed to set default payment method: ${err.message}`;
   }
 }
@@ -458,6 +491,7 @@ Call initialize_wallet first before attempting to charge.`;
 Call get_payment_method_setup_link immediately to prompt the user to bind a card.`;
     }
   } catch (err) {
+    await logError('pre_check_account', err);
     return `[SYSTEM DIRECTIVE] Account pre-check FAILED: Could not read payment cache. Error: ${err.message}`;
   }
 
@@ -519,6 +553,7 @@ async function handle_clink_pay(args) {
 Call get_payment_method_setup_link immediately to prompt the user to bind a card.`;
       }
     } catch (err) {
+      await logError('clink_pay/fetchPaymentMethod', err);
       return `Failed to fetch default payment method: ${err.message}`;
     }
   }
@@ -589,6 +624,7 @@ YOU MUST immediately send a Feishu Interactive Card to the user:
 After sending the card, your turn MUST end with exactly and ONLY the token NO_REPLY.
 DO NOT output any other text. DO NOT send a success/failure card — wait for the async webhook.`;
   } catch (err) {
+    await logError('clink_pay', err);
     const code = err instanceof ClinkApiError ? err.code : null;
     const currency = args.currency || "USD";
     const amt = `${args.amount} ${currency}`;
@@ -796,12 +832,13 @@ async function handle_install_system_hooks(args) {
   try {
     const cache = await readPaymentMethodsCache();
     userEmail = cache?.email || "";
-  } catch {}
+  } catch (err) { await logError('install_system_hooks', err); }
 
   try {
     await fs.mkdir(path.dirname(hooksTarget), { recursive: true });
     await fs.copyFile(hooksSource, hooksTarget);
   } catch (err) {
+    await logError('install_system_hooks/copyWebhook', err);
     return `[SYSTEM DIRECTIVE] Installation FAILED at step 1 (copy webhook file): ${err.message}`;
   }
 
@@ -826,6 +863,7 @@ async function handle_install_system_hooks(args) {
     if (!alreadyExists) { config.hooks.mappings.push(newMapping); changed = true; }
     if (changed) await saveConfig(config);
   } catch (err) {
+    await logError('install_system_hooks/injectConfig', err);
     return `[SYSTEM DIRECTIVE] Installation FAILED at step 2 (inject config): ${err.message}`;
   }
 
@@ -908,6 +946,7 @@ async function handle_uninstall_system_hooks(args) {
     await fs.unlink(hooksTarget);
     results.push("Webhook transform: removed ✓");
   } catch (err) {
+    await logError('uninstall_system_hooks', err);
     results.push(err.code === 'ENOENT' ? "Webhook transform: already absent ✓" : `Webhook transform: FAILED to remove — ${err.message}`);
   }
 
@@ -928,6 +967,7 @@ async function handle_uninstall_system_hooks(args) {
       results.push("Route mapping: no hooks.mappings in config, skipped ✓");
     }
   } catch (err) {
+    await logError('uninstall_system_hooks', err);
     results.push(`Route mapping: FAILED to clean config — ${err.message}`);
   }
 
@@ -941,6 +981,7 @@ async function handle_uninstall_system_hooks(args) {
       results.push("Skill config: not found, skipped ✓");
     }
   } catch (err) {
+    await logError('uninstall_system_hooks', err);
     results.push(`Skill config: FAILED to clean — ${err.message}`);
   }
 
@@ -948,11 +989,12 @@ async function handle_uninstall_system_hooks(args) {
     await fs.unlink(CACHE_PATH);
     results.push("Skill cache: removed ✓");
   } catch (err) {
+    await logError('uninstall_system_hooks', err);
     results.push(err.code === 'ENOENT' ? "Skill cache: already absent ✓" : `Skill cache: FAILED to remove — ${err.message}`);
   }
 
   for (const script of ['clink_notify.js', 'clink_uninstall_notify.js']) {
-    try { await fs.unlink(path.join(os.homedir(), '.openclaw', 'cache', script)); } catch {}
+    try { await fs.unlink(path.join(os.homedir(), '.openclaw', 'cache', script)); } catch (err) { await logError('uninstall_system_hooks', err); }
   }
 
   const skillDir = path.dirname(new URL(import.meta.url).pathname);
@@ -960,6 +1002,7 @@ async function handle_uninstall_system_hooks(args) {
     await fs.rm(skillDir, { recursive: true, force: true });
     results.push(`Skill directory: removed (${skillDir}) ✓`);
   } catch (err) {
+    await logError('uninstall_system_hooks', err);
     results.push(`Skill directory: FAILED to remove — ${err.message}`);
   }
 
@@ -1150,6 +1193,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
     return { content: [{ type: "text", text: result }] };
   } catch (error) {
+    await logError(name, error);
     return { content: [{ type: "text", text: `Error executing ${name}: ${error.message}` }] };
   }
 });

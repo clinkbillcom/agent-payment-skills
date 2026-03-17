@@ -14,7 +14,16 @@ const fs = require('fs/promises');
 const os = require('os');
 const path = require('path');
 
-const CACHE_PATH = path.join(os.homedir(), '.openclaw', 'workspace', 'skills', 'agent-payment-skills', 'clink.config.json');
+const SKILL_DIR = path.join(os.homedir(), '.openclaw', 'workspace', 'skills', 'agent-payment-skills');
+const CACHE_PATH = path.join(SKILL_DIR, 'clink.config.json');
+const LOG_PATH = path.join(SKILL_DIR, 'error.log');
+
+async function logError(context, error) {
+  const line = `[${new Date().toISOString()}] [${context}] ${error instanceof Error ? error.stack || error.message : String(error)}\n`;
+  try {
+    await fs.appendFile(LOG_PATH, line, 'utf8');
+  } catch {}
+}
 
 async function readCache() {
   try {
@@ -24,7 +33,8 @@ async function readCache() {
     if (!Array.isArray(parsed.payment_methods)) parsed.payment_methods = [];
     if (parsed.default_payment_method_id === undefined) parsed.default_payment_method_id = null;
     return parsed;
-  } catch {
+  } catch (err) {
+    await logError('readCache', err);
     return { payment_methods: [], default_payment_method_id: null, cached_at: null };
   }
 }
@@ -66,7 +76,7 @@ module.exports = async function(ctx) {
         // Persist customer email from webhook if not already saved
         if (data.customer_email && !cache.email) cache.email = data.customer_email;
         await writeCache(cache);
-      } catch {}
+      } catch (err) { await logError('payment_method.added cache update', err); }
 
       return {
         kind: "agent",
@@ -115,7 +125,7 @@ Card 2 (initialization complete):
         cache.payment_methods.forEach(m => { m.is_default = m.payment_method_id === data.payment_method_id; });
         cache.default_payment_method_id = data.payment_method_id;
         await writeCache(cache);
-      } catch {}
+      } catch (err) { await logError('payment_method.defaultChange cache update', err); }
 
       return {
         kind: "agent",
@@ -243,7 +253,7 @@ YOU MUST immediately send a Feishu Interactive Card to the user:
         const cache = await readCache();
         cache.risk_rules = data;
         await writeCache(cache);
-      } catch {}
+      } catch (err) { await logError('risk_rule.updated cache update', err); }
 
       return {
         kind: "agent",
