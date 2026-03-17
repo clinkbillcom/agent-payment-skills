@@ -5,9 +5,9 @@
 // Handles:
 //   1. payment_method.added        — user finished binding a card on Clink hosted page
 //   2. payment_method.defaultChange — user changed their default payment method
-//   3. agent_order.created / order.created     — charge order created (intermediate)
-//   4. agent_order.succeeded / order.succeeded — payment succeeded
-//   5. agent_order.failed / order.failed       — payment or recharge failed
+//   3. agent_order.created  — charge order created (intermediate)
+//   4. agent_order.succeeded — payment succeeded
+//   5. agent_order.failed   — payment or recharge failed
 //   6. risk_rule.updated — risk rules changed
 
 const fs = require('fs/promises');
@@ -130,8 +130,7 @@ Card 2 (initialization complete):
     }
 
     // ─── Order created (intermediate state) ───
-    case "agent_order.created":
-    case "order.created": {
+    case "agent_order.created": {
       const amt = formatAmount(data);
       const orderId = data.order_id || data.orderId || "N/A";
       const customerId = data.customer_id || data.customerId || "N/A";
@@ -154,8 +153,7 @@ DO NOT send a final success/failure card yet. Wait for order.succeeded or order.
     }
 
     // ─── Payment succeeded ───
-    case "agent_order.succeeded":
-    case "order.succeeded": {
+    case "agent_order.succeeded": {
       const amt = formatAmount(data);
       const card = formatCard(data);
       const orderId = data.order_id || data.orderId || "N/A";
@@ -195,8 +193,7 @@ DO NOT send a "充值成功" card until the merchant confirms the recharge is cr
     }
 
     // ─── Payment or recharge failed ───
-    case "agent_order.failed":
-    case "order.failed": {
+    case "agent_order.failed": {
       const amt = formatAmount(data);
       const card = formatCard(data);
       const orderId = data.order_id || data.orderId || "N/A";
