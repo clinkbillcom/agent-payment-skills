@@ -63,6 +63,8 @@ module.exports = async function(ctx) {
           cache.default_payment_method_id = data.payment_method_id;
         }
         if (!cache.initialized) cache.initialized = true;
+        // Persist customer email from webhook if not already saved
+        if (data.customer_email && !cache.email) cache.email = data.customer_email;
         await writeCache(cache);
       } catch {}
 
