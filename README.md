@@ -88,9 +88,9 @@ CLI 环境（Claude Code、Cursor 等）同样支持上述命令。
 
 ```
 用户输入邮箱 → initialize_wallet → get_binding_link
-  ├─ 未绑卡 → 引导绑卡 → card.added webhook 确认
+  ├─ 未绑卡 → 引导绑卡 → payment_method.added webhook 确认
   └─ 已绑卡 → 跳过
-→ get_risk_rules_link → 用户设置规则
+→ get_risk_rules_link → 用户设置规则（可选）
 → 🎉 初始化完成
 ```
 
@@ -103,7 +103,7 @@ pre_check_account（账户预检）
   ├─ 卡被拒 → 引导换卡 → 自动重试
   ├─ 风控触发 → 用户选择（继续/改规则/暂停）
   └─ 邮箱不匹配 → 安全拦截，不重试
-→ order.succeeded webhook → 商户确认到账
+→ agent_order.succeeded webhook → 商户确认到账
 → ✅ 充值成功
 ```
 
@@ -139,8 +139,10 @@ clink_pay(merchant_id="m_001", amount=50, currency="USD")
 商户 Skill 返回 402 时附带 `session_id`，金额和币种由 Session 预设：
 
 ```
-clink_pay(sessionId="sess_xxx", merchant_id="m_001", amount=50)
+clink_pay(sessionId="sess_xxx")
 ```
+
+金额和币种由 Clink Session 预设，调用时不需要传 `merchant_id` 或 `amount`。
 
 ---
 
@@ -164,10 +166,12 @@ clink_pay(sessionId="sess_xxx", merchant_id="m_001", amount=50)
 
 | 事件 | 说明 |
 |------|------|
-| `card.added` | 用户绑卡成功 |
-| `order.created` | 充值订单已创建（中间状态） |
-| `order.succeeded` | 支付成功，等待商户确认到账 |
-| `order.failed` | 支付或充值失败 |
+| `payment_method.added` | 用户绑卡成功 |
+| `payment_method.defaultChange` | 用户更换了默认支付方式 |
+| `agent_order.created` | 充值订单已创建（中间状态） |
+| `agent_order.succeeded` | 支付成功，等待商户确认到账 |
+| `agent_order.failed` | 支付或充值失败 |
+| `risk_rule.updated` | 用户更新了风控规则 |
 
 ---
 
@@ -177,7 +181,7 @@ clink_pay(sessionId="sess_xxx", merchant_id="m_001", amount=50)
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `CLINK_API_BASE_URL` | Clink API 地址 | `http://localhost:8080` |
+| `CLINK_API_BASE_URL` | Clink API 地址 | `https://uat-api.clinkbill.com` |
 | `OPENCLAW_CONFIG_PATH` | OpenClaw 配置文件路径 | `~/.openclaw/openclaw.json` |
 
 ### 自动持久化的配置
@@ -201,16 +205,18 @@ clink_pay(sessionId="sess_xxx", merchant_id="m_001", amount=50)
 agent-payment-skills/
 ├── README.md                         # 本文件
 ├── SKILL.md                          # Skill 定义与 Agent 指引文档
-├── index.mjs                         # 核心实现（13 个工具）
+├── index.mjs                         # 核心实现（15 个工具）
+├── scripts/
+│   └── send-feishu-card.mjs          # 飞书卡片发送脚本（无外部依赖）
 └── hooks/
-    └── my_payment_webhook.js         # Webhook 回调处理（4 种事件）
+    └── my_payment_webhook.js         # Webhook 回调处理（6 种事件）
 ```
 
 ---
 
 ## 依赖
 
-- [Feishu Interactive Cards Skill](https://github.com/openclaw/skills/tree/main/skills/leecyang/feishu-interactive-cards) — 用于向用户展示支付状态卡片（安装时自动引导）
+飞书卡片通过内置的 `scripts/send-feishu-card.mjs` 脚本发送，无需安装额外 Skill。
 
 ## 谁在用
 
