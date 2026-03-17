@@ -42,10 +42,7 @@ module.exports = async function(ctx) {
     return { kind: "wake", text: "[Clink Webhook] Received unknown payload with no type or data." };
   }
 
-  // Normalize event type: strip leading "agent_" prefix (e.g. agent_order.succeeded → order.succeeded)
-  const normalizedType = type.startsWith('agent_') ? type.slice('agent_'.length) : type;
-
-  switch (normalizedType) {
+  switch (type) {
 
     // ─── Card binding completed ───
     case "payment_method.added": {
@@ -133,6 +130,7 @@ Card 2 (initialization complete):
     }
 
     // ─── Order created (intermediate state) ───
+    case "agent_order.created":
     case "order.created": {
       const amt = formatAmount(data);
       const orderId = data.order_id || data.orderId || "N/A";
@@ -156,6 +154,7 @@ DO NOT send a final success/failure card yet. Wait for order.succeeded or order.
     }
 
     // ─── Payment succeeded ───
+    case "agent_order.succeeded":
     case "order.succeeded": {
       const amt = formatAmount(data);
       const card = formatCard(data);
@@ -196,6 +195,7 @@ DO NOT send a "充值成功" card until the merchant confirms the recharge is cr
     }
 
     // ─── Payment or recharge failed ───
+    case "agent_order.failed":
     case "order.failed": {
       const amt = formatAmount(data);
       const card = formatCard(data);
