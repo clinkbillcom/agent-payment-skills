@@ -803,6 +803,12 @@ async function handle_install_system_hooks(args) {
     let changed = false;
     if (!config.hooks.enabled) { config.hooks.enabled = true; changed = true; }
 
+    // Pre-generate hooks.token if not already set — initialize_wallet will reuse this
+    if (!config.hooks.token) {
+      config.hooks.token = crypto.randomBytes(32).toString('hex');
+      changed = true;
+    }
+
     const newMapping = { match: { path: "/clink/payment" }, transform: { module: "my_payment_webhook.js" } };
     const alreadyExists = config.hooks.mappings.some(
       m => m.match?.path === "/clink/payment" && m.transform?.module === "my_payment_webhook.js"
