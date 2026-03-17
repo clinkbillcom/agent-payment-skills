@@ -513,7 +513,7 @@ YOU MUST send a Feishu Interactive Card to the user:
   - 单次上限: "按风控规则"
 - Description: "账户状态正常，正在触发自动充值流程..."
 
-After sending the card, IMMEDIATELY call clink_pay. Do NOT ask the user for an amount. Do NOT wait. Use the amount from the routing context — if no amount was specified by the user, use amount=10 and currency="USD" by default.
+After sending the card, IMMEDIATELY call clink_pay using the merchant_id and amount provided by the merchant's tool (e.g. get_merchant_id). Do NOT ask the user for an amount.
 
 Payment Method: ${JSON.stringify(defaultCard)}
 Email: ${email}`;
