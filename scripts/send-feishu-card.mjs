@@ -5,8 +5,10 @@
  *
  * Usage:
  *   node send-feishu-card.mjs <card-file.json> --chat-id oc_xxx
- *   node send-feishu-card.mjs --json '{"schema":"2.0",...}' --chat-id oc_xxx
+ *   node send-feishu-card.mjs --json '{"config":{},"header":{},"elements":[]}' --chat-id oc_xxx
  *   node send-feishu-card.mjs <card-file.json> --open-id ou_xxx
+ *
+ * Card format: { "config": { "wide_screen_mode": true }, "header": {...}, "elements": [...] }
  */
 import fs from 'fs';
 import os from 'os';
@@ -20,13 +22,27 @@ let chatId = null;
 let openId = null;
 
 for (let i = 0; i < args.length; i++) {
-  switch (args[i]) {
-    case '--chat-id':    chatId    = args[++i]; break;
-    case '--open-id':   openId    = args[++i]; break;
-    case '--json':      cardJsonStr = args[++i]; break;
-    default:
-      if (!args[i].startsWith('--')) cardFile = args[i];
+  const arg = args[i];
+  if (arg === '--chat-id' || arg === '--open-id' || arg === '--json') {
+    const val = args[i + 1];
+    if (!val || val.startsWith('--')) {
+      console.error(`Error: ${arg} requires a value`);
+      process.exitCode = 1;
+      process.exit();
+    }
+    i++;
+    if (arg === '--chat-id')  chatId      = val;
+    if (arg === '--open-id')  openId      = val;
+    if (arg === '--json')     cardJsonStr = val;
+  } else if (!arg.startsWith('--')) {
+    cardFile = arg;
   }
+}
+
+if (chatId && openId) {
+  console.error('Error: provide --chat-id or --open-id, not both');
+  process.exitCode = 1;
+  process.exit();
 }
 
 const receiveId     = chatId ?? openId;
@@ -34,11 +50,13 @@ const receiveIdType = openId ? 'open_id' : 'chat_id';
 
 if (!receiveId) {
   console.error('Error: --chat-id or --open-id is required');
-  process.exit(1);
+  process.exitCode = 1;
+  process.exit();
 }
 if (!cardFile && !cardJsonStr) {
   console.error('Error: provide a card file path or --json <json-string>');
-  process.exit(1);
+  process.exitCode = 1;
+  process.exit();
 }
 
 // --- Load card ---
@@ -47,12 +65,17 @@ try {
   if (cardJsonStr) {
     card = JSON.parse(cardJsonStr);
   } else {
-    const p = path.isAbsolute(cardFile) ? cardFile : path.resolve(process.cwd(), cardFile);
+    // Expand ~ to home directory
+    const expanded = cardFile.startsWith('~/')
+      ? path.join(os.homedir(), cardFile.slice(2))
+      : cardFile;
+    const p = path.isAbsolute(expanded) ? expanded : path.resolve(process.cwd(), expanded);
     card = JSON.parse(fs.readFileSync(p, 'utf-8'));
   }
 } catch (e) {
   console.error('Error loading card:', e.message);
-  process.exit(1);
+  process.exitCode = 1;
+  process.exit();
 }
 
 // --- Load OpenClaw config ---
@@ -62,18 +85,21 @@ try {
   config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
 } catch (e) {
   console.error('Error reading openclaw.json:', e.message);
-  process.exit(1);
+  process.exitCode = 1;
+  process.exit();
 }
 
 const accounts = config?.channels?.feishu?.accounts;
 if (!accounts) {
   console.error('Error: No feishu accounts found in ~/.openclaw/openclaw.json');
-  process.exit(1);
+  process.exitCode = 1;
+  process.exit();
 }
 const account = accounts.main ?? Object.values(accounts)[0];
 if (!account?.appId || !account?.appSecret) {
   console.error('Error: Feishu account is missing appId or appSecret');
-  process.exit(1);
+  process.exitCode = 1;
+  process.exit();
 }
 
 // --- Feishu API calls ---
@@ -83,6 +109,7 @@ async function getTenantAccessToken() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ app_id: account.appId, app_secret: account.appSecret }),
   });
+  if (!res.ok) throw new Error(`Auth HTTP ${res.status}: ${res.statusText}`);
   const data = await res.json();
   if (data.code !== 0) throw new Error(`Auth failed: ${data.msg}`);
   return data.tenant_access_token;
@@ -104,11 +131,16 @@ async function sendCard(token) {
       }),
     },
   );
+  if (!res.ok) throw new Error(`Send HTTP ${res.status}: ${res.statusText}`);
   const data = await res.json();
   if (data.code !== 0) throw new Error(`Send failed: ${data.msg} (code: ${data.code})`);
   console.log(`✅ Card sent (message_id: ${data.data?.message_id})`);
 }
 
-getTenantAccessToken()
-  .then(sendCard)
-  .catch(e => { console.error('❌', e.message); process.exit(1); });
+(async () => {
+  const token = await getTenantAccessToken();
+  await sendCard(token);
+})().catch(e => {
+  console.error('❌', e.message);
+  process.exitCode = 1;
+});
