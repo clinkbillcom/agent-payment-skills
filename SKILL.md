@@ -57,6 +57,12 @@ If you discover a bug or need a change, **report it to the user in plain text**.
 
 ---
 
+## ⚡ PRIORITY RULE: "开启自动充值" → Install Skill
+
+If the user's message is exactly or closely matches `开启自动充值`, **immediately start the install flow** (Section 3: Post-Installation Setup). Do NOT ask for confirmation first — go straight to sending the authorization card.
+
+---
+
 ## ⚡ PRIORITY RULE: Email → Initialize Wallet (Highest Priority)
 
 > **This rule fires before any other logic. No prior context required.**
