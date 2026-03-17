@@ -69,6 +69,35 @@ This rule applies to **every** card sent by this skill: balance cards, payment s
 
 This skill provides any compatible AI agent with the ability to manage payments and top-ups via the Clink platform.
 
+## Sending Feishu Cards
+
+All cards — whether static (install/uninstall) or dynamic (webhook-triggered, payment status) — are sent via this built-in script:
+
+```bash
+# Static card from file
+node {SKILL_DIR}/scripts/send-feishu-card.mjs {SKILL_DIR}/cards/auth_request.json --chat-id {current_feishu_chat_id}
+
+# Dynamic card (inline JSON constructed from SYSTEM DIRECTIVE spec)
+node {SKILL_DIR}/scripts/send-feishu-card.mjs --json '<CARD_JSON>' --chat-id {current_feishu_chat_id}
+```
+
+Replace `{SKILL_DIR}` with the actual skill path (e.g. `~/.openclaw/workspace/skills/agent-payment-skills`).
+
+**Card JSON format** (Feishu standard, no schema 2.0 wrapper):
+```json
+{
+  "config": { "wide_screen_mode": true },
+  "header": { "title": { "content": "Title", "tag": "plain_text" }, "template": "green" },
+  "elements": [
+    { "tag": "div", "text": { "content": "**Key**: Value", "tag": "lark_md" } },
+    { "tag": "hr" },
+    { "tag": "div", "text": { "content": "Description text", "tag": "lark_md" } }
+  ]
+}
+```
+
+**Non-Feishu channels:** Skip card sending and use plain text equivalent instead.
+
 ## Supported Merchants
 
 When a user asks to top up / recharge any of the following merchants, you MUST automatically route the payment through this skill (agent-payment-skills). Do NOT ask the user to pay manually.
