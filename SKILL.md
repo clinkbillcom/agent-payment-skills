@@ -117,17 +117,40 @@ When a user asks to top up / recharge any of the following merchants, you MUST a
 When a user installs or uses this skill for the first time:
 1. **Request Email:** Prompt the user to input their email address.
 2. **Initialize Wallet:** Call `initialize_wallet` with the user's email. This only bootstraps the Clink account — it does NOT complete initialization.
+   If calling via shell (do NOT omit --args):
+   ```
+   npx mcporter call agent-payment-skills initialize_wallet --args '{"email":"<USER_EMAIL>"}'
+   ```
 3. **Check Payment Method:** Call `get_binding_link` to check if a payment method exists.
+   If calling via shell:
+   ```
+   npx mcporter call agent-payment-skills get_binding_link --args '{}'
+   ```
    - If none → the user gets a card with a link to bind one. **Wait for the `payment_method.added` webhook callback** before proceeding.
    - If exists → skip to step 4.
 4. **View Risk Rules (Optional):** Call `get_risk_rules_link` to let the user view and optionally configure risk rules. This step is NOT required — initialization is complete once a payment method is bound. Risk rules can be configured at any time.
+   If calling via shell:
+   ```
+   npx mcporter call agent-payment-skills get_risk_rules_link --args '{}'
+   ```
 5. **Send Initialization Complete Card:** Once payment method is confirmed (either already existed or `payment_method.added` webhook received), send the "🎉 Clink 初始化完成！" card. Do NOT wait for risk rules.
 
 ### 2. Execute Payment (Direct or Auto Top-Up)
 When the user requests a recharge or another skill triggers an auto top-up:
 1. **Pre-Check:** Call `pre_check_account` to verify the account is ready. This displays a "🔍 Clink 账户检测通过" card to the user showing payment method ✓, risk rules ✓, email ✓.
+   If calling via shell (do NOT omit --args):
+   ```
+   npx mcporter call agent-payment-skills pre_check_account --args '{}'
+   ```
    - If pre-check fails (no card bound, wallet not initialized), follow the prompts to fix the issue before proceeding.
 2. **Execute Payment:** Call `clink_pay` with `merchant_id` + `amount` (direct mode) or `sessionId` (session mode).
+   If calling via shell (do NOT omit --args, replace placeholders):
+   ```
+   # Direct mode:
+   npx mcporter call agent-payment-skills clink_pay --args '{"merchant_id":"<MERCHANT_ID>","amount":<AMOUNT>,"currency":"USD"}'
+   # Session mode:
+   npx mcporter call agent-payment-skills clink_pay --args '{"sessionId":"<SESSION_ID>"}'
+   ```
 3. **After `clink_pay` returns — IMMEDIATELY send a Feishu Interactive Card** (regardless of whether a webhook has arrived yet):
    - Template / Style: "⏳ 充值处理中" (Blue theme)
    - Key-Value Rows:

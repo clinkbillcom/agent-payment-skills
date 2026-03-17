@@ -486,6 +486,17 @@ Email: ${email}`;
 }
 
 async function handle_clink_pay(args) {
+  // Validate required fields early — missing amount/currency causes a silent Clink API error
+  if (!args || typeof args !== 'object') {
+    return "ERROR: clink_pay requires an args object. Missing: merchant_id (or sessionId), amount, currency.";
+  }
+  if (!args.sessionId && !args.merchant_id) {
+    return "ERROR: clink_pay requires 'merchant_id' (direct mode) or 'sessionId' (session mode). Received: " + JSON.stringify(args);
+  }
+  if (!args.sessionId && (args.amount === undefined || args.amount === null || args.amount === '')) {
+    return "ERROR: clink_pay requires 'amount'. Received args: " + JSON.stringify(args);
+  }
+
   const env = await getPaymentEnv();
   if (!env.CLINK_CUSTOMER_API_KEY || !env.CLINK_CUSTOMER_ID) {
     return "Wallet not initialized. Please run initialize_wallet first.";
@@ -517,7 +528,6 @@ Call get_payment_method_setup_link immediately to prompt the user to bind a card
 
   if (args.sessionId) {
     chargeBody.sessionId = args.sessionId;
-    if (args.merchant_id) chargeBody.merchantId = args.merchant_id;
   } else {
     chargeBody.merchantId = args.merchant_id;
     chargeBody.customAmount = args.amount;
@@ -819,7 +829,6 @@ async function handle_install_system_hooks(args) {
     return `[SYSTEM DIRECTIVE] Installation FAILED at step 2 (inject config): ${err.message}`;
   }
 
-  const skillDir = path.dirname(new URL(import.meta.url).pathname);
   const sendCardScript = path.join(skillDir, 'scripts', 'send-feishu-card.mjs');
   const notifyScriptPath = path.join(os.homedir(), '.openclaw', 'cache', 'clink_notify.mjs');
 
@@ -1099,7 +1108,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           paymentInstrumentId: { type: "string" },
           paymentMethodType: { type: "string" }
         },
-        required: ["amount"]
+        required: []
       }
     },
     {

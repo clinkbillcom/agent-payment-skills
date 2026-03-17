@@ -185,6 +185,10 @@ Step 1: Send a Feishu Interactive Card to the user:
 - Description: "已完成扣款，正在等待商户确认到账…"
 
 Step 2: Use the merchant's own skill or API to confirm whether the recharge has been credited to the user's merchant account. Pass the order_id="${orderId}" to the merchant's recharge status check.
+If calling via shell (do NOT omit --args):
+\`\`\`
+npx mcporter call modelmax-media check_recharge_status --args '{"order_id":"${orderId}"}'
+\`\`\`
 
 Step 3: Based on the merchant confirmation result:
   - If credited/success: send "✅ 充值成功" card with the recharge details and resume any paused upstream task.
