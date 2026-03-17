@@ -105,7 +105,9 @@ Card 2 (initialization complete):
   - 绑定支付方式: "${card} ✓" (Green)
   - 规则状态: "已生效" (Green)
 - Description: "你现在可以部署自动充值任务。风控规则可选，可随时通过「查看风控规则」配置。"
-- No action buttons needed.`
+- Buttons:
+  - Button 1 (primary/blue): "修改绑卡" — action: call get_payment_method_modify_link and send result as a card
+  - Button 2 (ghost): "查看风控规则" — action: call get_risk_rules_link and send result as a card`
       };
     }
 
