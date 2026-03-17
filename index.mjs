@@ -998,6 +998,17 @@ async function handle_uninstall_system_hooks(args) {
   }
 
   const skillDir = path.dirname(new URL(import.meta.url).pathname);
+
+  // Remove MCP server registration
+  try {
+    const { execSync } = await import('child_process');
+    execSync('openclaw mcp remove agent-payment-skills', { stdio: 'pipe' });
+    results.push("MCP server: unregistered ✓");
+  } catch (err) {
+    await logError('uninstall_system_hooks/mcp-remove', err);
+    results.push(`MCP server: FAILED to unregister — ${err.message}`);
+  }
+
   try {
     await fs.rm(skillDir, { recursive: true, force: true });
     results.push(`Skill directory: removed (${skillDir}) ✓`);

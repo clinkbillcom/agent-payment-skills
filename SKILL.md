@@ -241,6 +241,7 @@ When the user asks to uninstall this skill, the agent MUST follow the same stric
    - Remove `my_payment_webhook.js` from `~/.openclaw/hooks/transforms/`.
    - Remove the `hooks/clink/payment` route mapping from `openclaw.json` `hooks.mappings`.
    - Remove Clink skill config (`skills.entries["agent-payment-skills"]`) from `openclaw.json`.
+   - Unregister the MCP server: `openclaw mcp remove agent-payment-skills`.
    - Remove the skill directory.
    - Schedule an async gateway restart (3-second delay, non-blocking).
 
