@@ -819,49 +819,44 @@ async function handle_install_system_hooks(args) {
     return `[SYSTEM DIRECTIVE] Installation FAILED at step 2 (inject config): ${err.message}`;
   }
 
-  const notifyScriptPath = path.join(os.homedir(), '.openclaw', 'cache', 'clink_notify.js');
-  const notifyJsCode = `
-const fs = require('fs');
-const http = require('http');
-const path = require('path');
-const os = require('os');
+  const skillDir = path.dirname(new URL(import.meta.url).pathname);
+  const sendCardScript = path.join(skillDir, 'scripts', 'send-feishu-card.mjs');
+  const notifyScriptPath = path.join(os.homedir(), '.openclaw', 'cache', 'clink_notify.mjs');
 
-const configPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
-let gatewayPort = 14924;
-let webhookToken = '';
-try {
-  const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-  gatewayPort = config.gateway?.port || 14924;
-  webhookToken = config.hooks?.token || '';
-} catch (err) { console.error('Failed to read openclaw.json:', err.message); }
+  const targetId = args.target_id || '';
+  const targetFlag = targetId.startsWith('ou_') ? '--open-id' : '--chat-id';
 
-const cachePath = path.join(os.homedir(), '.openclaw', 'workspace', 'skills', 'agent-payment-skills', 'clink.config.json');
-let userEmail = '';
-if (fs.existsSync(cachePath)) {
-  try {
-    const cache = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
-    userEmail = cache.email || '';
-  } catch (err) { console.error('Failed to read skill cache:', err.message); }
-}
-
-let userMessage = '✅ **网关重启完毕，Clink 支付组件已满血上线！**\\n\\n🔐 **最后一步：钱包初始化**\\n请在下方输入框直接回复您的邮箱地址进行绑定。';
-if (userEmail) {
-  userMessage = '✅ **网关重启完毕，Clink 支付组件已满血上线！**\\n\\n🔐 **最后一步：钱包初始化**\\n请在下方输入框直接回复您的新邮箱地址，或**一键复制**下方口令继续使用之前的邮箱：\\n\\n\`\`\`text\\n使用之前的邮箱：' + userEmail + '\\n\`\`\`';
-}
-
-function post(payload) {
-  return new Promise((resolve, reject) => {
-    const body = JSON.stringify(payload);
-    const headers = { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) };
-    if (webhookToken) headers['Authorization'] = 'Bearer ' + webhookToken;
-    const req = http.request({ hostname: 'localhost', port: gatewayPort, path: '/hooks/agent', method: 'POST', headers }, resolve);
-    req.on('error', reject);
-    req.write(body);
-    req.end();
+  // Build the post-restart card JSON
+  const emailHint = userEmail
+    ? `\\n\\n如需继续使用之前的邮箱，直接回复：\`${userEmail}\``
+    : '';
+  const cardJson = JSON.stringify({
+    config: { wide_screen_mode: true },
+    header: {
+      title: { content: '✅ Clink 支付组件已上线', tag: 'plain_text' },
+      template: 'green'
+    },
+    elements: [
+      { tag: 'div', text: { content: `**Webhook 路由**　<font color='green'>已就绪 ✓</font>\\n**网关状态**　　<font color='green'>重启完毕 ✓</font>`, tag: 'lark_md' } },
+      { tag: 'hr' },
+      { tag: 'div', text: { content: `🔐 **最后一步：钱包初始化**\\n请直接回复您的邮箱地址完成绑定。${emailHint}`, tag: 'lark_md' } }
+    ]
   });
-}
 
-post({ message: userMessage, channel: "feishu", to: "${args.target_id}", deliver: true }).catch(console.error);
+  const notifyJsCode = `
+import { execFileSync } from 'child_process';
+import { fileURLToPath } from 'url';
+
+const sendCardScript = ${JSON.stringify(sendCardScript)};
+const cardJson = ${JSON.stringify(cardJson)};
+const targetFlag = ${JSON.stringify(targetFlag)};
+const targetId = ${JSON.stringify(targetId)};
+
+try {
+  execFileSync(process.execPath, [sendCardScript, '--json', cardJson, targetFlag, targetId], { stdio: 'inherit' });
+} catch (err) {
+  console.error('Failed to send post-restart card:', err.message);
+}
 `;
   await fs.writeFile(notifyScriptPath, notifyJsCode, 'utf8');
 
