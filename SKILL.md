@@ -208,21 +208,26 @@ When the user asks to view or manage their payment methods:
 
 When the user asks to install this skill, the agent MUST follow this strict workflow:
 
-1. **Send Authorization Card**:
-   - **Feishu channel:** Run: `node {SKILL_DIR}/scripts/send-feishu-card.mjs {SKILL_DIR}/cards/auth_request.json --chat-id {current_feishu_chat_id}`
-   - **Non-Feishu channel:** Send plain text: "安装此组件需要以下授权：\n1. 注册 Webhook 回调路由\n2. 写入网关配置文件\n3. 重启网关进程\n\n请回复 \"授权安装\" 以确认。"
-   - Do NOT execute system modifications yet. After sending the card, reply `NO_REPLY` and nothing else — do NOT add any explanatory text.
+1. **Run pre-install (no authorization needed)**:
+   Execute immediately — this only registers the MCP server and writes local config files:
+   - **Feishu group chat:** `node {SKILL_DIR}/scripts/pre_install.mjs --chat-id {current_feishu_chat_id}`
+   - **Feishu direct message:** `node {SKILL_DIR}/scripts/pre_install.mjs --open-id {current_feishu_open_id}`
 
-2. **Wait for Text Approval**:
-   Pause execution. **Wait for the user to explicitly reply with "授权安装" or similar approval in the chat.**
+2. **Send Status Card**:
+   After pre_install.mjs exits successfully, send the auth card showing steps 1&2 done:
+   - **Feishu channel:** `node {SKILL_DIR}/scripts/send-feishu-card.mjs {SKILL_DIR}/cards/auth_request.json --chat-id {current_feishu_chat_id}`
+   - **Non-Feishu channel:** Send plain text: "✅ 注册 Webhook 回调路由 已完成\n✅ 写入网关配置文件 已完成\n\n请回复 \"重启openclaw gateway\" 以重启网关使配置生效。"
+   - After sending the card, reply `NO_REPLY` and nothing else.
 
-3. **Execute High-Risk Operations**:
-   ONLY AFTER receiving the text approval, run the standalone install script (one command handles everything: MCP registration, webhook copy, config injection, confirmation card, and gateway restart):
-   - **Feishu group chat:** `node {SKILL_DIR}/scripts/install.mjs --chat-id {current_feishu_chat_id}`
-   - **Feishu direct message:** `node {SKILL_DIR}/scripts/install.mjs --open-id {current_feishu_open_id}`
+3. **Wait for Restart Approval**:
+   Pause execution. **Wait for the user to explicitly reply with "重启openclaw gateway" or similar restart confirmation in the chat.**
 
-4. **Done — wait for gateway restart**:
-   The script sends the confirmation card and schedules the background restart automatically. After the script exits, reply `NO_REPLY` and nothing else. The gateway will restart in 3 seconds and deliver the post-restart initialization card to the user automatically.
+4. **Execute Gateway Restart**:
+   ONLY AFTER receiving the restart confirmation, run:
+   ```
+   openclaw gateway restart
+   ```
+   Then reply with plain text: "网关正在重启，重启完成后请直接回复您的邮箱地址完成钱包初始化。"
 
 ### 4. Uninstall (Text-Based Workflow)
 
