@@ -151,16 +151,39 @@ const postRestartCard = JSON.stringify({
 });
 
 const notifyCode = `
-import { execFileSync, appendFileSync } from 'child_process';
+import { execFileSync, execSync } from 'child_process';
 import { appendFile } from 'fs/promises';
+
 const sendCard = ${JSON.stringify(SEND_CARD)};
 const card = ${JSON.stringify(postRestartCard)};
 const flag = ${JSON.stringify(targetFlag)};
 const id = ${JSON.stringify(targetId)};
 const log = ${JSON.stringify(path.join(SKILL_DIR, 'error.log'))};
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function isGatewayUp() {
+  try {
+    execSync('openclaw gateway status', { stdio: 'pipe', timeout: 3000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Wait a moment for the old gateway to shut down, then poll until the new one is up.
+await sleep(3000);
+const MAX_WAIT_MS = 60_000;
+const POLL_MS = 2_000;
+let waited = 0;
+while (!isGatewayUp() && waited < MAX_WAIT_MS) {
+  await sleep(POLL_MS);
+  waited += POLL_MS;
+}
+
 try {
   execFileSync(process.execPath, [sendCard, '--json', card, flag, id], { stdio: 'pipe' });
-  await appendFile(log, '[' + new Date().toISOString() + '] [notify] post-restart card sent ok\\n');
+  await appendFile(log, '[' + new Date().toISOString() + '] [notify] post-restart card sent ok (waited ' + waited + 'ms)\\n');
 } catch (e) {
   await appendFile(log, '[' + new Date().toISOString() + '] [notify] FAILED: ' + e.message + '\\n');
 }
@@ -169,9 +192,8 @@ await fs.mkdir(path.dirname(notifyScriptPath), { recursive: true });
 await fs.writeFile(notifyScriptPath, notifyCode, 'utf8');
 
 // Use nohup so both background processes survive the gateway restart.
-// spawn+detach alone is not enough — openclaw gateway restart can kill the process tree.
 execSync(`nohup sh -c 'sleep 3 && openclaw gateway restart' > /dev/null 2>&1 &`, { stdio: 'ignore' });
-execSync(`nohup sh -c 'sleep 20 && ${process.execPath} ${notifyScriptPath}' > /dev/null 2>&1 &`, { stdio: 'ignore' });
+execSync(`nohup sh -c '${process.execPath} ${notifyScriptPath}' > /dev/null 2>&1 &`, { stdio: 'ignore' });
 
 console.log('  ✅ Background processes scheduled');
 console.log('\nInstallation complete.');
