@@ -124,7 +124,7 @@ function buildRechargeStatusArgs(orderId) {
 function toCachedPaymentMethod(data, paymentInstrumentId) {
   return {
     paymentInstrumentId,
-    paymentInstrumentType: data.paymentMethodType,
+    paymentMethodType: data.paymentMethodType,
     cardScheme: data.cardBrand,
     cardLastFour: data.cardLast4,
     issuerBank: data.issuerBank || null,
@@ -278,7 +278,8 @@ After sending the card, reply NO_REPLY and nothing else.`
     case "agent_order.succeeded": {
       const amt = formatAmount(data);
       const cache = await readCache();
-      const card = formatCard(data.paymentMethod.paymentInstrumentId, data, cache);
+      const paymentInstrumentId = data.paymentInstrumentId || data.paymentMethod?.paymentInstrumentId || null;
+      const card = formatCard(paymentInstrumentId, data, cache);
       const orderId = data.orderId || "N/A";
       const customerId = data.customerId || "N/A";
       const sessionId = data.sessionId || "无";

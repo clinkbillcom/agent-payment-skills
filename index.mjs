@@ -97,7 +97,7 @@ async function readPaymentMethodsCache() {
 function normalizeCachedMethod(m) {
   return {
     paymentInstrumentId: m.paymentInstrumentId,
-    paymentInstrumentType: m.paymentInstrumentType,
+    paymentMethodType: m.paymentMethodType || m.paymentInstrumentType,
     cardScheme: m.cardScheme,
     cardLastFour: m.cardLastFour,
     isDefault: m.isDefault,
@@ -111,7 +111,7 @@ async function overwriteCachedBindingMethods(methods) {
     ? methods
         .map((method) => ({
           paymentInstrumentId: method.paymentInstrumentId || null,
-          paymentInstrumentType: method.paymentInstrumentType || null,
+          paymentMethodType: method.paymentMethodType || method.paymentInstrumentType || null,
           cardScheme: method.cardScheme || null,
           cardLastFour: method.cardLastFour || null,
           issuerBank: method.issuerBank || null,
@@ -589,7 +589,7 @@ async function handle_clink_pay(args) {
           || cache.paymentMethods.find(m => m.isDefault)
           || cache.paymentMethods[0];
         piId = defaultRaw.paymentInstrumentId;
-        pmType = defaultRaw.paymentInstrumentType || pmType;
+        pmType = defaultRaw.paymentMethodType || defaultRaw.paymentInstrumentType || pmType;
       } else {
         // Cache empty — fall back to live Clink API (e.g. after reinstall)
         const { methods } = await fetchBindingData();
