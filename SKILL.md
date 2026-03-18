@@ -208,25 +208,18 @@ When the user asks to view or manage their payment methods:
 
 When the user asks to install this skill, the agent MUST follow this strict workflow:
 
-1. **Run pre-install (no authorization needed)**:
-   Execute immediately — this only registers the MCP server and writes local config files:
+1. **Run pre-install**:
+   Registers MCP, writes config, verifies, spawns post-restart notify process, and sends the status card — all in one command:
    - **Feishu group chat:** `node {SKILL_DIR}/scripts/pre_install.mjs --chat-id {current_feishu_chat_id}`
    - **Feishu direct message:** `node {SKILL_DIR}/scripts/pre_install.mjs --open-id {current_feishu_open_id}`
 
-2. **Spawn post-restart notify process**:
-   Must run before the gateway restart so it survives as an independent process:
-   - `node {SKILL_DIR}/scripts/spawn_notify.mjs`
+   If this command exits with an error, stop and report the error to the user. Do NOT continue.
 
-3. **Send status card**:
-   - **Feishu channel:** `node {SKILL_DIR}/scripts/send-feishu-card.mjs {SKILL_DIR}/cards/auth_request.json --chat-id {current_feishu_chat_id}`
-   - **Non-Feishu channel:** Send plain text: "✅ 注册 Webhook 回调路由 已完成\n✅ 写入网关配置文件 已完成\n🔄 网关正在重启…"
-   - After sending the card, reply `NO_REPLY` and nothing else.
-
-4. **Restart the gateway**:
+2. **Restart the gateway**:
    ```
    openclaw gateway restart
    ```
-   The notify process will detect when the gateway is back up and send the post-restart initialization card automatically.
+   The notify process (already running in background) will detect when the gateway is back up and send the post-restart initialization card automatically.
 
 ### 4. Uninstall (Text-Based Workflow)
 
