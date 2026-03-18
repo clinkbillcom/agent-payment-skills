@@ -121,9 +121,9 @@ function buildRechargeStatusArgs(orderId) {
   return JSON.stringify(args);
 }
 
-function toCachedPaymentMethod(data) {
+function toCachedPaymentMethod(data, paymentInstrumentId) {
   return {
-    paymentInstrumentId: data.paymentMethodId,
+    paymentInstrumentId,
     paymentInstrumentType: data.paymentMethodType,
     cardScheme: data.cardBrand,
     cardLastFour: data.cardLast4,
@@ -147,20 +147,20 @@ module.exports = async function(ctx) {
     case "payment_method.added": {
       const cardDisplay = `${(data.cardBrand || "CARD").toUpperCase()} ••••${data.cardLast4 || "????"}`;
       const email = data.customerEmail || "N/A";
-      const cachedMethod = toCachedPaymentMethod(data);
+      const cachedMethod = toCachedPaymentMethod(data, data.paymentInstrumentId);
 
       // Update cache
       try {
         const cache = await readCache();
-        const existing = cache.paymentMethods.findIndex(m => m.paymentInstrumentId === data.paymentMethodId);
+        const existing = cache.paymentMethods.findIndex(m => m.paymentInstrumentId === data.paymentInstrumentId);
         if (existing >= 0) {
           cache.paymentMethods[existing] = cachedMethod;
         } else {
           cache.paymentMethods.push(cachedMethod);
         }
         if (data.isDefault) {
-          cache.paymentMethods.forEach(m => { m.isDefault = m.paymentInstrumentId === data.paymentMethodId; });
-          cache.defaultPaymentMethodId = data.paymentMethodId;
+          cache.paymentMethods.forEach(m => { m.isDefault = m.paymentInstrumentId === data.paymentInstrumentId; });
+          cache.defaultPaymentMethodId = data.paymentInstrumentId;
         }
         if (!cache.initialized) cache.initialized = true;
         if (data.customerEmail && !cache.email) cache.email = data.customerEmail;
@@ -201,7 +201,7 @@ module.exports = async function(ctx) {
 事件: payment_method.added
 客户邮箱: ${email}
 客户 ID: ${data.customerId || "N/A"}
-支付方式 ID: ${data.paymentMethodId || "N/A"}
+支付方式 ID: ${data.paymentInstrumentId || "N/A"}
 卡片: ${cardDisplay}
 状态: ${data.status || "active"}
 
@@ -221,19 +221,19 @@ After sending both cards, reply NO_REPLY and nothing else.`
     // ─── Default payment method changed ───
     case "payment_method.default_change": {
       const cardDisplay = `${(data.cardBrand || "CARD").toUpperCase()} ••••${data.cardLast4 || "????"}`;
-      const cachedMethod = toCachedPaymentMethod(data);
+      const cachedMethod = toCachedPaymentMethod(data, data.paymentInstrumentId);
 
       // Update cache
       try {
         const cache = await readCache();
-        const existing = cache.paymentMethods.findIndex(m => m.paymentInstrumentId === data.paymentMethodId);
+        const existing = cache.paymentMethods.findIndex(m => m.paymentInstrumentId === data.paymentInstrumentId);
         if (existing >= 0) {
           cache.paymentMethods[existing] = cachedMethod;
         } else {
           cache.paymentMethods.push(cachedMethod);
         }
-        cache.paymentMethods.forEach(m => { m.isDefault = m.paymentInstrumentId === data.paymentMethodId; });
-        cache.defaultPaymentMethodId = data.paymentMethodId;
+        cache.paymentMethods.forEach(m => { m.isDefault = m.paymentInstrumentId === data.paymentInstrumentId; });
+        cache.defaultPaymentMethodId = data.paymentInstrumentId;
         await writeCache(cache);
       } catch (err) { await logError('payment_method.default_change cache update', err); }
 
@@ -241,7 +241,7 @@ After sending both cards, reply NO_REPLY and nothing else.`
         schema: "2.0",
         header: { title: { content: "✅ 默认支付方式已更新", tag: "plain_text" }, template: "green" },
         body: { elements: [
-          { tag: "markdown", content: `**当前默认卡**　<font color="green">${cardDisplay}</font>\n**支付方式 ID**　${data.paymentMethodId || "N/A"}` },
+          { tag: "markdown", content: `**当前默认卡**　<font color="green">${cardDisplay}</font>\n**支付方式 ID**　${data.paymentInstrumentId || "N/A"}` },
           { tag: "hr" },
           { tag: "markdown", content: "后续付款将优先使用这张卡。如需继续之前失败的支付，请直接告诉我重新发起。" }
         ]}
@@ -260,7 +260,7 @@ After sending both cards, reply NO_REPLY and nothing else.`
 事件: payment_method.default_change
 客户 ID: ${data.customerId || "N/A"}
 新默认卡: ${cardDisplay}
-支付方式 ID: ${data.paymentMethodId || "N/A"}
+支付方式 ID: ${data.paymentInstrumentId || "N/A"}
 
 [SYSTEM DIRECTIVE] Direct webhook card delivery failed. YOU MUST immediately send this Feishu Interactive Card:
 ${cardExec(updateCard)}
