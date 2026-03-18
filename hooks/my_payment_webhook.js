@@ -109,8 +109,11 @@ async function sendCardsDirect(context, cards) {
   }
 }
 
-function buildRechargeStatusArgs(orderId) {
+function buildRechargeStatusArgs(orderId, sessionId) {
   const args = { order_id: orderId };
+  if (typeof sessionId === 'string' && sessionId.trim()) {
+    args.session_id = sessionId.trim();
+  }
   if (_notifyTarget) {
     if (_notifyFlag === '--open-id') {
       args.open_id = _notifyTarget;
@@ -298,7 +301,7 @@ After sending the card, reply NO_REPLY and nothing else.`
       const step1 = sent
         ? `Step 1: The webhook already sent the "✅ 支付成功" Feishu card directly to the user. Do NOT send it again.`
         : `Step 1: Direct webhook card delivery failed. Send this Feishu Interactive Card to the user:\n${cardExec(pendingCard)}`;
-      const rechargeStatusArgs = buildRechargeStatusArgs(orderId);
+      const rechargeStatusArgs = buildRechargeStatusArgs(orderId, data.sessionId || data.session_id || null);
 
       return {
         kind: "wake",
@@ -320,7 +323,7 @@ Rules:
 2. Do NOT explain the webhook.
 3. Do NOT stop after the "✅ 支付成功" card; direct card delivery does NOT complete the flow.
 4. Reuse the SAME merchant skill / merchant API flow that initiated this recharge. Do NOT hardcode or switch to a different merchant integration.
-5. Invoke that merchant-side recharge status checker immediately with the order_id payload above. If the merchant flow has a dedicated recharge-confirmation tool, call it now.
+5. Invoke that merchant-side recharge status checker immediately with the exact args payload above (including session_id when present). If the merchant flow has a dedicated recharge-confirmation tool, call it now.
 6. Only after the merchant recharge-status check returns:
    - if credited/success: continue the merchant flow, send "✅ 充值成功", and resume the paused upstream task
    - if failed/timeout: send the failure/timeout result to the user
