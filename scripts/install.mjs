@@ -20,7 +20,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import crypto from 'crypto';
-import { execFileSync, execSync, spawn } from 'child_process';
+import { execFileSync, execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 
 const SKILL_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -151,20 +151,27 @@ const postRestartCard = JSON.stringify({
 });
 
 const notifyCode = `
-import { execFileSync } from 'child_process';
+import { execFileSync, appendFileSync } from 'child_process';
+import { appendFile } from 'fs/promises';
 const sendCard = ${JSON.stringify(SEND_CARD)};
 const card = ${JSON.stringify(postRestartCard)};
 const flag = ${JSON.stringify(targetFlag)};
 const id = ${JSON.stringify(targetId)};
+const log = ${JSON.stringify(path.join(SKILL_DIR, 'error.log'))};
 try {
-  execFileSync(process.execPath, [sendCard, '--json', card, flag, id], { stdio: 'inherit' });
-} catch (e) { console.error('notify failed:', e.message); }
+  execFileSync(process.execPath, [sendCard, '--json', card, flag, id], { stdio: 'pipe' });
+  await appendFile(log, '[' + new Date().toISOString() + '] [notify] post-restart card sent ok\\n');
+} catch (e) {
+  await appendFile(log, '[' + new Date().toISOString() + '] [notify] FAILED: ' + e.message + '\\n');
+}
 `;
 await fs.mkdir(path.dirname(notifyScriptPath), { recursive: true });
 await fs.writeFile(notifyScriptPath, notifyCode, 'utf8');
 
-spawn('sh', ['-c', 'sleep 3 && openclaw gateway restart'], { detached: true, stdio: 'ignore' }).unref();
-spawn('sh', ['-c', `sleep 15 && ${process.execPath} ${notifyScriptPath}`], { detached: true, stdio: 'ignore' }).unref();
+// Use nohup so both background processes survive the gateway restart.
+// spawn+detach alone is not enough — openclaw gateway restart can kill the process tree.
+execSync(`nohup sh -c 'sleep 3 && openclaw gateway restart' > /dev/null 2>&1 &`, { stdio: 'ignore' });
+execSync(`nohup sh -c 'sleep 20 && ${process.execPath} ${notifyScriptPath}' > /dev/null 2>&1 &`, { stdio: 'ignore' });
 
 console.log('  ✅ Background processes scheduled');
 console.log('\nInstallation complete.');
