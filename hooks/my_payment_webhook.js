@@ -162,7 +162,7 @@ module.exports = async function(ctx) {
 
     // ─── Card binding completed ───
     case "payment_method.added": {
-      const cardDisplay = `${(data.cardBrand || data.paymentMethodType || "Unknow").toUpperCase()} ••••${data.cardLast4 || "????"}`;
+      const cardDisplay = `${(data.cardBrand || data.paymentMethodType || "Unknow").toUpperCase()} ••••${data.cardLast4 || "****"}`;
       const email = data.customerEmail || "N/A";
       const cachedMethod = toCachedPaymentMethod(data, data.paymentInstrumentId);
 
@@ -237,7 +237,7 @@ After sending both cards, reply NO_REPLY and nothing else.`
 
     // ─── Default payment method changed ───
     case "payment_method.default_change": {
-      const cardDisplay = `${(data.cardBrand || data.paymentMethodType || "Unknow").toUpperCase()} ••••${data.cardLast4 || "????"}`;
+      const cardDisplay = `${(data.cardBrand || data.paymentMethodType || "Unknow").toUpperCase()} ••••${data.cardLast4 || "****"}`;
       const cachedMethod = toCachedPaymentMethod(data, data.paymentInstrumentId);
 
       // Update cache
@@ -555,7 +555,7 @@ function formatRefundAmount(data) {
 
 function formatCachedCard(method) {
   const brand = method.cardBrand || method.paymentMethodType || "Unknow";
-  const last4 = method.cardLast4 || "????";
+  const last4 = method.cardLast4 || "****";
   return `${String(brand).toUpperCase()} ••••${last4}`;
 }
 
@@ -570,14 +570,14 @@ function formatCard(paymentInstrumentId, data, cache) {
   }
 
   if (data.cardBrand || data.cardLast4) {
-    return `${(data.cardBrand || data.paymentMethodType || "Unknow").toUpperCase()} ••••${data.cardLast4 || "????"}`;
+    return `${(data.cardBrand || data.paymentMethodType || "Unknow").toUpperCase()} ••••${data.cardLast4 || "****"}`;
   }
 
   if (data.paymentMethod) {
     const pm = data.paymentMethod;
     if (pm.cardBrand || pm.cardLast4) {
       const brand = pm.cardBrand || pm.paymentMethodType || "Unknow";
-      const last4 = pm.cardLast4 || "????";
+      const last4 = pm.cardLast4 || "****";
       return `${brand.toUpperCase()} ••••${last4}`;
     }
     return `${pm.paymentMethodType || "Unknow"} ${paymentInstrumentId}`.trim();

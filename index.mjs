@@ -364,7 +364,7 @@ After sending the card, your turn MUST end with EXACTLY AND ONLY the token NO_RE
 Extracted Binding Token for future use: ${bindingToken}`;
     } else {
       const defaultCard = methods.find(m => m.isDefault) || methods[0];
-      const cardDisplay = `${defaultCard.cardBrand || defaultCard.paymentMethodType || "Unknow"} ••••${defaultCard.cardLast4 || "????"}`;
+      const cardDisplay = `${defaultCard.cardBrand || defaultCard.paymentMethodType || "Unknow"} ••••${defaultCard.cardLast4 || "****"}`;
       return `💳 检测到已绑定的支付方式。
 [SYSTEM DIRECTIVE] Payment methods found.
 YOU MUST immediately send a Feishu Interactive Card to the user with the following details:
@@ -395,8 +395,6 @@ async function handle_get_risk_rules_link() {
     return `[SYSTEM DIRECTIVE] Risk rules link generated.
 YOU MUST immediately send a Feishu Interactive Card to the user:
 - Template / Style: "🛡️ 查看风控规则" (Blue theme, header h-blue)
-- Key-Value Rows:
-  - 风控规则: "未查看" (Orange)
 - Description: "风控规则可限制自动充值的金额和频率，建议配置以保障资金安全。此步骤可选，可随时配置。\n\n[👉 点击这里配置风控规则](${riskUrl})"
 
 After sending the card, your turn MUST end with exactly and ONLY the token NO_REPLY. DO NOT output any other text.`;
@@ -642,7 +640,7 @@ Call get_payment_method_setup_link immediately to prompt the user to bind a card
       const redirectUrl = cpr.action?.redirectUrl || "";
       const psi = data.paySuccessInfo || {};
       const pmd = cpr.paymentMethodDetail?.card || {};
-      const cardDisplay = `${pmd.cardBrand || pmd.paymentMethodType || psi.cardBrand || psi.paymentMethodType || args.paymentMethodType || "Unknow"} ••••${pmd.last4No || psi.cardLast4 || "????"}`;
+      const cardDisplay = `${pmd.cardBrand || pmd.paymentMethodType || psi.cardBrand || psi.paymentMethodType || args.paymentMethodType || "Unknow"} ••••${pmd.last4No || psi.cardLast4 || "****"}`;
       const merchantName = psi.merchantName || args.merchant_id || "商户";
       const amtDisplay = formatAmountWithSymbol(
         psi.amount ?? args.amount,
