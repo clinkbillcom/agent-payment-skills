@@ -101,8 +101,8 @@ async function overwriteCachedBindingMethods(methods) {
         .map((method) => ({
           paymentInstrumentId: method.paymentInstrumentId || null,
           paymentMethodType: method.paymentMethodType || null,
-          cardScheme: method.cardScheme || null,
-          cardLastFour: method.cardLastFour || null,
+          cardBrand: method.cardBrand || null,
+          cardLast4: method.cardLast4 || null,
           issuerBank: method.issuerBank || null,
           isDefault: method.isDefault ?? false,
           isDisabled: method.isDisabled ?? false,
@@ -364,7 +364,7 @@ After sending the card, your turn MUST end with EXACTLY AND ONLY the token NO_RE
 Extracted Binding Token for future use: ${bindingToken}`;
     } else {
       const defaultCard = methods.find(m => m.isDefault) || methods[0];
-      const cardDisplay = `${defaultCard.cardScheme || "CARD"} ••••${defaultCard.cardLastFour || "????"}`;
+      const cardDisplay = `${defaultCard.cardBrand || defaultCard.paymentMethodType || "Unknow"} ••••${defaultCard.cardLast4 || "????"}`;
       return `💳 检测到已绑定的支付方式。
 [SYSTEM DIRECTIVE] Payment methods found.
 YOU MUST immediately send a Feishu Interactive Card to the user with the following details:
@@ -435,7 +435,7 @@ async function handle_get_payment_method_modify_link() {
 YOU MUST immediately send a Feishu Interactive Card to the user:
 - Template / Style: "⚙️ 管理支付方式" (Blue theme)
 - Key-Value Rows:
-  - 当前支付方式: "${defaultCard ? `${defaultCard.cardScheme} ••••${defaultCard.cardLastFour}` : '未设置'}"
+  - 当前支付方式: "${defaultCard ? `${defaultCard.cardBrand || defaultCard.paymentMethodType || "Unknow"} ••••${defaultCard.cardLast4}` : '未设置'}"
   - 已绑定数量: "${methods.length} 种"
 - Description: "查看已绑定的支付方式，切换默认卡，或添加新的支付方式。\n\n[👉 点击这里管理支付方式](${modifyUrl})"
 
@@ -473,7 +473,7 @@ async function handle_get_payment_method_detail(args) {
     return `[SYSTEM DIRECTIVE] Payment Method Detail Retrieved.
 YOU MUST send a Feishu Interactive Card to the user with the following details:
 - Template / Style: "💳 检测到已绑定的支付方式" (Green theme)
-- Card: ${data.cardScheme} ${data.cardLastFour ? "•••• " + data.cardLastFour : ""}
+- Card: ${data.cardBrand || data.paymentMethodType || "Unknow"} ${data.cardLast4 ? "•••• " + data.cardLast4 : ""}
 - Billing Region: ${data.billingAddressJson?.country || "N/A"}
 
 Raw Data: ${JSON.stringify(data)}`;
@@ -554,7 +554,7 @@ Call initialize_wallet first before attempting to charge.`;
       const { methods } = await fetchBindingData();
       if (methods.length > 0) {
         const live = methods.find(m => m.isDefault) || methods[0];
-        defaultCard = live; // already camelCase: cardScheme, cardLastFour
+        defaultCard = live; // already camelCase: cardBrand, cardLast4
       }
     }
   } catch (err) {
@@ -642,7 +642,7 @@ Call get_payment_method_setup_link immediately to prompt the user to bind a card
       const redirectUrl = cpr.action?.redirectUrl || "";
       const psi = data.paySuccessInfo || {};
       const pmd = cpr.paymentMethodDetail?.card || {};
-      const cardDisplay = `${pmd.cardScheme || psi.cardScheme || "CARD"} ••••${pmd.last4No || psi.cardLastFour || "????"}`;
+      const cardDisplay = `${pmd.cardBrand || pmd.paymentMethodType || psi.cardBrand || psi.paymentMethodType || args.paymentMethodType || "Unknow"} ••••${pmd.last4No || psi.cardLast4 || "????"}`;
       const merchantName = psi.merchantName || args.merchant_id || "商户";
       const amtDisplay = formatAmountWithSymbol(
         psi.amount ?? args.amount,
@@ -1198,11 +1198,11 @@ req.end();
   return `SUCCESS: Clink Payment Skill uninstalled. The gateway will restart in 3 seconds.
 
 [SYSTEM DIRECTIVE] You MUST immediately send a Feishu Interactive Card to the user:
-- Template / Style: "🗑️ Clink Payment Skill 已卸载" (Grey theme, header h-grey)
+- Template / Style: "🗑️ Clink Payment Skill 卸载执行中" (Grey theme, header h-grey)
 - Key-Value Rows:
 ${results.map(r => `  - ${r}`).join("\n")}
-  - 网关状态: "将在 3 秒后自动重启" (Orange)
-- Description: "Clink 支付功能已完全移除。如需重新安装，请告知我。"
+  - 网关状态: "执行完成后自动重启" (Orange)
+- Description: "正在卸载 Clink Payment 支付组件及相关配置。卸载完成后将自动重启 gateway 生效。"
 - No action buttons needed.
 
 After sending the card, your turn MUST end with exactly and ONLY the token NO_REPLY. DO NOT output any other text, markdown, or explanation.`;

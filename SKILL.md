@@ -258,7 +258,7 @@ When the user asks to uninstall this skill, the agent MUST follow the same stric
    - Schedule an async gateway restart (3-second delay, non-blocking).
 
 4. **Final Confirmation**:
-   The tool will return immediately. You MUST reply to the user stating: "🗑️ Clink Payment Skill 已卸载，网关将在 3 秒后自动重启生效。"
+   The tool will return immediately. You MUST send an "🗑️ Clink Payment Skill 卸载执行中" card to the user stating that uninstall is in progress and the gateway will automatically restart after the uninstall completes.
 
 ## API References
 - API Documentation: `https://docs.clinkbill.com/`
