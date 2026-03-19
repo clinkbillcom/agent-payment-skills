@@ -305,7 +305,7 @@ After sending the card, reply NO_REPLY and nothing else.`
         schema: "2.0",
         header: { title: { content: "✅ 支付成功", tag: "plain_text" }, template: "green" },
         body: { elements: [
-          { tag: "markdown", content: `**支付金额**　${amt}\n**扣款方式**　${card}` },
+          { tag: "markdown", content: `**支付金额**　${amt}\n**扣款方式**　${card}\n**Clink 订单号**　${orderId}` },
           { tag: "hr" },
           { tag: "markdown", content: "已完成扣款，正在等待商户确认到账…" }
         ]}
@@ -541,14 +541,16 @@ function formatAmount(data) {
   const currency = data.currency || data.paymentCurrency || "";
   const symbol = currency === "USD" ? "$" : currency;
   const amount = data.amount ?? data.amountTotal ?? data.amountSubtotal ?? "N/A";
-  return amount === "N/A" ? "N/A" : `${symbol}${amount}`;
+  const parsed = Number(amount);
+  return amount === "N/A" || !Number.isFinite(parsed) ? "N/A" : `${symbol}${parsed.toFixed(2)}`;
 }
 
 function formatRefundAmount(data) {
   const currency = data.refund_currency || data.refundCurrency || "";
   const symbol = currency === "USD" ? "$" : currency;
   const amount = data.refund_amount ?? data.refundAmount ?? "N/A";
-  return amount === "N/A" ? "N/A" : `${symbol}${amount}`;
+  const parsed = Number(amount);
+  return amount === "N/A" || !Number.isFinite(parsed) ? "N/A" : `${symbol}${parsed.toFixed(2)}`;
 }
 
 function formatCachedCard(method) {

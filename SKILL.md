@@ -170,7 +170,7 @@ When a user installs or uses this skill for the first time:
 
 ### 2. Execute Payment (Direct or Auto Top-Up)
 When the user requests a recharge or another skill triggers an auto top-up:
-1. **Pre-Check:** Call `pre_check_account` to verify the account is ready. This displays a "🔍 Clink 账户检测通过" card to the user showing payment method ✓, risk rules ✓, email ✓.
+1. **Pre-Check:** Call `pre_check_account` to verify the account is ready. Do NOT send any "🔍 Clink 账户检测通过" card when this check passes.
    If calling via shell (do NOT omit --args):
    ```
    npx mcporter call agent-payment-skills pre_check_account --args '{}'
@@ -184,20 +184,12 @@ When the user requests a recharge or another skill triggers an auto top-up:
    # Session mode:
    npx mcporter call agent-payment-skills clink_pay --args '{"sessionId":"<SESSION_ID>"}'
    ```
-3. **After `clink_pay` returns — IMMEDIATELY send a Feishu Interactive Card** (regardless of whether a webhook has arrived yet):
-   - Template / Style: "⏳ 充值处理中" (Blue theme)
-   - Key-Value Rows:
-     - 充值金额: the requested amount + currency (e.g. "$10.00 USD")
-     - 商户: merchant name
-     - 订单状态: "处理中…"
-   - Description: "已提交至支付网关，正在等待银行确认。结果将通过通知自动推送。"
-   - No action buttons needed.
-4. **Stop after the processing card:** After sending the "⏳ 充值处理中" card, end the current turn. Do NOT call the merchant-side recharge status checker yet.
-5. **Async webhook is the only confirmation trigger:** The payment result may arrive asynchronously via webhook:
+3. **After `clink_pay` returns:** Do NOT send any intermediate "⏳ 充值处理中" card. End the current turn with `NO_REPLY` and wait for the async webhook.
+4. **Async webhook is the only confirmation trigger:** The payment result may arrive asynchronously via webhook:
    - `order.succeeded` → Continue the merchant recharge confirmation flow, then let the merchant skill send "✅ 充值成功/❌ 充值失败" and resume the original task.
    - `order.failed` → Send payment-layer failure feedback such as "❌ 支付失败" or "❌ 支付异常".
    - `flag3DS=1` (synchronous) → Send "🔐 3DS 验证" card with link, wait for webhook.
-6. **Handle Failures:**
+5. **Handle Failures:**
    - Card declined → Send switch payment method card. After receiving `payment_method.defaultChange` webhook, inform the user the new card is active and **ask if they want to retry the payment**. Do NOT retry automatically.
    - Email mismatch → Show the security block card. Do NOT retry.
    - Risk rule triggered → Show options (override / modify rules / pause).
