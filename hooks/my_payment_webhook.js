@@ -43,6 +43,17 @@ async function logError(context, error) {
   } catch {}
 }
 
+async function logRequest(context, payload) {
+  const entry = {
+    time: new Date().toISOString(),
+    context,
+    payload,
+  };
+  try {
+    await fs.appendFile(LOG_PATH, JSON.stringify(entry) + '\n', 'utf8');
+  } catch {}
+}
+
 async function readCache() {
   try {
     const content = await fs.readFile(CACHE_PATH, 'utf8');
@@ -162,6 +173,7 @@ module.exports = async function(ctx) {
 
     // ─── Card binding completed ───
     case "payment_method.added": {
+      await logRequest('payment_method.added', data);
       const cardDisplay = `${(data.cardBrand || data.paymentMethodType || "Unknow").toUpperCase()} ••••${data.cardLast4 || "****"}`;
       const email = data.customerEmail || "N/A";
       const cachedMethod = toCachedPaymentMethod(data, data.paymentInstrumentId);
@@ -241,6 +253,7 @@ ${exec2}
 
     // ─── Default payment method changed ───
     case "payment_method.default_change": {
+      await logRequest('payment_method.default_change', data);
       const cardDisplay = `${(data.cardBrand || data.paymentMethodType || "Unknow").toUpperCase()} ••••${data.cardLast4 || "****"}`;
       const cachedMethod = toCachedPaymentMethod(data, data.paymentInstrumentId);
 
