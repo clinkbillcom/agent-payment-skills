@@ -169,8 +169,8 @@ async function triggerMerchantConfirmation(context, args) {
   await logRequest('agent_order.succeeded.trigger_merchant_confirmation', { context, args });
   try {
     const child = spawn(
-      'mcporter',
-      ['call', context.server, context.tool, '--args', JSON.stringify(args)],
+      'npx',
+      ['mcporter', 'call', context.server, context.tool, '--args', JSON.stringify(args)],
       {
         detached: true,
         stdio: 'ignore',
