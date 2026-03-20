@@ -67,15 +67,13 @@ async function saveConfig(config) {
 // --- Step 1: Register MCP server ---
 console.log('Step 1: Registering MCP server...');
 try {
-  execSync(`npx mcporter config add agent-payment-skills "node ${BUNDLE}"`, { stdio: 'pipe' });
+  execSync(`npx mcporter config add agent-payment-skills "node ${BUNDLE}"`, {
+    stdio: 'inherit',
+    shell: true,
+  });
   console.log('  ✅ Registered via npx mcporter');
-} catch {
-  try {
-    execSync(`mcp add agent-payment-skills "node ${BUNDLE}"`, { stdio: 'pipe' });
-    console.log('  ✅ Registered via mcp add');
-  } catch (e2) {
-    console.warn('  ⚠️  MCP registration skipped (will be active after gateway restart):', e2.message);
-  }
+} catch (e2) {
+  console.warn('  ⚠️  MCP registration skipped (will be active after gateway restart):', e2.message);
 }
 
 // --- Store target_id in clink.config.json so webhook can resolve chat_id at runtime ---
