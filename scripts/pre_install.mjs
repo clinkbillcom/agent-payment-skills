@@ -22,7 +22,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import crypto from 'crypto';
-import { execFileSync, execSync } from 'child_process';
+import { execFileSync, execSync, spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 
 const SKILL_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -187,7 +187,11 @@ try {
 
 await fs.mkdir(path.dirname(notifyScriptPath), { recursive: true });
 await fs.writeFile(notifyScriptPath, notifyCode, 'utf8');
-execSync(`nohup sh -c '${process.execPath} ${notifyScriptPath}' > /dev/null 2>&1 &`, { stdio: 'ignore' });
+const notifyChild = spawn(process.execPath, [notifyScriptPath], {
+  detached: true,
+  stdio: 'ignore',
+});
+notifyChild.unref();
 console.log('  ✅ Notify process spawned');
 
 // --- Step 5: Send status card ---
