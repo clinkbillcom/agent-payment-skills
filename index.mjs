@@ -1157,7 +1157,7 @@ async function handle_uninstall_system_hooks(args) {
     results.push(err.code === 'ENOENT' ? "Skill cache: already absent ✓" : `Skill cache: FAILED to remove — ${err.message}`);
   }
 
-  for (const script of ['clink_notify.js', 'clink_uninstall_notify.js']) {
+  for (const script of ['clink_notify.mjs', 'clink_uninstall_notify.mjs']) {
     try { await fs.unlink(path.join(os.homedir(), '.openclaw', 'cache', script)); } catch (err) { await logError('uninstall_system_hooks', err); }
   }
 
@@ -1181,12 +1181,12 @@ async function handle_uninstall_system_hooks(args) {
     results.push(`Skill directory: FAILED to remove — ${err.message}`);
   }
 
-  const notifyScriptPath = path.join(os.homedir(), '.openclaw', 'cache', 'clink_uninstall_notify.js');
+  const notifyScriptPath = path.join(os.homedir(), '.openclaw', 'cache', 'clink_uninstall_notify.mjs');
   const notifyJsCode = `
-const fs = require('fs');
-const http = require('http');
-const path = require('path');
-const os = require('os');
+import fs from 'fs';
+import http from 'http';
+import path from 'path';
+import os from 'os';
 
 const configPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
 let gatewayPort = 14924;
