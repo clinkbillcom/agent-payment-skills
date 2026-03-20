@@ -8,7 +8,7 @@
  *   node pre_install.mjs --open-id ou_xxx
  *
  * What it does (all in one):
- *   1. Registers the MCP server via mcporter config add (or mcp add as fallback)
+ *   1. Registers the MCP server via npx mcporter config add (or mcp add as fallback)
  *   2. Stores notifyTargetId in clink.config.json
  *   3. Copies hooks/my_payment_webhook.js → ~/.openclaw/hooks/transforms/
  *   4. Injects webhook mapping into ~/.openclaw/openclaw.json and verifies
@@ -67,8 +67,8 @@ async function saveConfig(config) {
 // --- Step 1: Register MCP server ---
 console.log('Step 1: Registering MCP server...');
 try {
-  execSync(`mcporter config add agent-payment-skills "node ${BUNDLE}"`, { stdio: 'pipe' });
-  console.log('  ✅ Registered via mcporter');
+  execSync(`npx mcporter config add agent-payment-skills "node ${BUNDLE}"`, { stdio: 'pipe' });
+  console.log('  ✅ Registered via npx mcporter');
 } catch {
   try {
     execSync(`mcp add agent-payment-skills "node ${BUNDLE}"`, { stdio: 'pipe' });
