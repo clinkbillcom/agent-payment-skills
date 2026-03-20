@@ -187,8 +187,8 @@ When the user requests a recharge or another skill triggers an auto top-up:
    ```
 3. **After `clink_pay` returns:** Do NOT send any intermediate "⏳ 充值处理中" card. Wait for the async webhook.
 4. **Async webhook is the only confirmation trigger:** The payment result may arrive asynchronously via webhook:
-   - `order.succeeded` → Continue the merchant recharge confirmation flow, then let the merchant skill send "✅ 充值成功/❌ 充值失败" and resume the original task.
-   - `order.failed` → Send payment-layer failure feedback such as "❌ 支付失败" or "❌ 支付异常".
+   - `agent_order.succeeded` → Continue the merchant recharge confirmation flow, then let the merchant skill send "✅ 充值成功/❌ 充值失败" and resume the original task.
+   - `agent_order.failed` → Send payment-layer failure feedback such as "❌ 支付失败" or "❌ 支付异常".
    - `flag3DS=1` (synchronous) → Send "🔐 3DS 验证" card with link, wait for webhook.
 5. **Handle Failures:**
    - Card declined → Send switch payment method card. After receiving `payment_method.defaultChange` webhook, inform the user the new card is active and **ask if they want to retry the payment**. Do NOT retry automatically.

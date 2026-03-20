@@ -117,7 +117,7 @@ pre_check_account（账户预检）
 → agent-payment-skills.pre_check_account
 → agent-payment-skills.clink_pay（Session 模式）
 → 商户 Skill 立即确认到账轮询
-→ order.succeeded webhook（兜底）
+→ agent_order.succeeded webhook（兜底）
 → 自动重试原任务
 ```
 

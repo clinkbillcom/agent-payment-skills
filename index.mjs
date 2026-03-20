@@ -737,7 +737,7 @@ The bank requires secondary confirmation. YOU MUST pause the current task and se
   - 订单号: "${orderId}"
 - Description: "银行要求对此次充值进行二次身份确认（3DS），任务已暂停等待您完成验证。\n\n[👉 点击这里完成 3DS 验证](${redirectUrl})"
 
-After sending the card, you may add a brief natural-language reply if helpful, but do not repeat the card contents. DO NOT continue until the webhook confirms order.succeeded or order.failed.`;
+After sending the card, you may add a brief natural-language reply if helpful, but do not repeat the card contents. DO NOT continue until the webhook confirms agent_order.succeeded or agent_order.failed.`;
     }
 
     await savePendingMerchantConfirmation(args);
@@ -747,7 +747,7 @@ Do NOT send any intermediate "处理中" Feishu card to the user for this state.
 Do not send any extra card in this turn. A brief natural-language reply is fine if helpful.
 Do NOT ask the user any question.
 Do NOT invoke the merchant-side recharge-status checker in this turn.
-The merchant-side recharge confirmation and original-task resume must happen only after the later async webhook wake for payment/order.succeeded arrives.`;
+The merchant-side recharge confirmation and original-task resume must happen only after the later async webhook wake for payment/agent_order.succeeded arrives.`;
   } catch (err) {
     await logError('clink_pay', err);
     const code = err instanceof ClinkApiError ? err.code : null;
@@ -1371,9 +1371,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           amount: { type: "number", description: "Recharge amount" },
           currency: { type: "string", description: "Currency code, e.g. USD (default)" },
           sessionId: { type: "string", description: "Charge session ID from merchant (session mode)" },
-          merchant_confirm_server: { type: "string", description: "Merchant MCP server name to notify after payment/order.succeeded, e.g. modelmax-media" },
-          merchant_confirm_tool: { type: "string", description: "Merchant tool name to call after payment/order.succeeded, e.g. check_recharge_status" },
-          merchant_confirm_args: { type: "object", description: "Optional extra args forwarded to the merchant confirm tool after payment/order.succeeded" },
+          merchant_confirm_server: { type: "string", description: "Merchant MCP server name to notify after payment/agent_order.succeeded, e.g. modelmax-media" },
+          merchant_confirm_tool: { type: "string", description: "Merchant tool name to call after payment/agent_order.succeeded, e.g. check_recharge_status" },
+          merchant_confirm_args: { type: "object", description: "Optional extra args forwarded to the merchant confirm tool after payment/agent_order.succeeded" },
           paymentInstrumentId: { type: "string" },
           paymentMethodType: { type: "string" }
         },

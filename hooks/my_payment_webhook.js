@@ -407,7 +407,7 @@ After sending the card, you may add a brief natural-language reply if helpful, b
           mode: "now",
           text: `[Clink Webhook] 支付成功回调（扣款完成，等待商户到账确认）。
 
-事件: order.succeeded
+事件: agent_order.succeeded
 订单 ID: ${orderId}
 金额: ${amt}
 支付方式: ${card}
@@ -432,7 +432,7 @@ Rules:
         name: "Clink",
         message: `[Clink Webhook] 支付成功回调（扣款完成，等待商户到账确认）。
 
-事件: order.succeeded
+事件: agent_order.succeeded
 订单 ID: ${orderId}
 金额: ${amt}
 支付方式: ${card}
@@ -451,7 +451,7 @@ After sending the card, you may add a brief natural-language reply if helpful, b
         name: "Clink",
         message: `[Clink Webhook] 支付成功回调（扣款完成，等待商户到账确认）。
 
-事件: order.succeeded
+事件: agent_order.succeeded
 订单 ID: ${orderId}
 金额: ${amt}
 支付方式: ${card}
@@ -504,7 +504,7 @@ After sending the card, you may add a brief natural-language reply if helpful, b
         name: "Clink",
         message: `[Clink Webhook] 支付失败回调。
 
-事件: order.failed
+事件: agent_order.failed
 订单 ID: ${orderId}
 金额: ${amt}
 状态: ${status}
