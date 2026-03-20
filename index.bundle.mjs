@@ -21141,30 +21141,32 @@ Extracted Binding Token for future use: ${bindingToken}`;
       const defaultCard = methods.find((m) => m.isDefault) || methods[0];
       const cardDisplay = formatPaymentMethodDisplay(defaultCard);
       const cardJson = JSON.stringify({
-        config: { wide_screen_mode: true },
+        schema: "2.0",
         header: {
           title: { tag: "plain_text", content: "\u{1F4B3} \u68C0\u6D4B\u5230\u5DF2\u7ED1\u5B9A\u7684\u652F\u4ED8\u65B9\u5F0F" },
           template: "green"
         },
-        elements: [
-          {
-            tag: "div",
-            text: {
-              tag: "lark_md",
-              content: `**\u652F\u4ED8\u65B9\u5F0F**\u3000<font color='green'>${cardDisplay} \u2713</font>
+        body: {
+          elements: [
+            {
+              tag: "div",
+              text: {
+                tag: "lark_md",
+                content: `**\u652F\u4ED8\u65B9\u5F0F**\u3000<font color='green'>${cardDisplay} \u2713</font>
 **\u90AE\u7BB1**\u3000\u3000\u3000<font color='green'>${env.CLINK_USER_EMAIL || "N/A"} \u2713</font>
 **\u7ED1\u5B9A\u72B6\u6001**\u3000<font color='green'>\u5DF2\u7ED1\u5B9A \u2713</font>`
+              }
+            },
+            { tag: "hr" },
+            {
+              tag: "div",
+              text: {
+                tag: "lark_md",
+                content: "\u5DF2\u6709\u6709\u6548\u652F\u4ED8\u65B9\u5F0F\uFF0C\u65E0\u9700\u91CD\u65B0\u7ED1\u5361\u3002\u7EE7\u7EED\u68C0\u6D4B\u98CE\u63A7\u89C4\u5219\u2026"
+              }
             }
-          },
-          { tag: "hr" },
-          {
-            tag: "div",
-            text: {
-              tag: "lark_md",
-              content: "\u5DF2\u6709\u6709\u6548\u652F\u4ED8\u65B9\u5F0F\uFF0C\u65E0\u9700\u91CD\u65B0\u7ED1\u5361\u3002\u7EE7\u7EED\u68C0\u6D4B\u98CE\u63A7\u89C4\u5219\u2026"
-            }
-          }
-        ]
+          ]
+        }
       });
       return `\u{1F4B3} \u68C0\u6D4B\u5230\u5DF2\u7ED1\u5B9A\u7684\u652F\u4ED8\u65B9\u5F0F\u3002
 [SYSTEM DIRECTIVE] Payment methods found.

@@ -389,31 +389,33 @@ Extracted Binding Token for future use: ${bindingToken}`;
       const defaultCard = methods.find(m => m.isDefault) || methods[0];
       const cardDisplay = formatPaymentMethodDisplay(defaultCard);
       const cardJson = JSON.stringify({
-        config: { wide_screen_mode: true },
+        schema: '2.0',
         header: {
           title: { tag: 'plain_text', content: '💳 检测到已绑定的支付方式' },
           template: 'green',
         },
-        elements: [
-          {
-            tag: 'div',
-            text: {
-              tag: 'lark_md',
-              content:
-                `**支付方式**　<font color='green'>${cardDisplay} ✓</font>\n` +
-                `**邮箱**　　　<font color='green'>${env.CLINK_USER_EMAIL || 'N/A'} ✓</font>\n` +
-                `**绑定状态**　<font color='green'>已绑定 ✓</font>`,
+        body: {
+          elements: [
+            {
+              tag: 'div',
+              text: {
+                tag: 'lark_md',
+                content:
+                  `**支付方式**　<font color='green'>${cardDisplay} ✓</font>\n` +
+                  `**邮箱**　　　<font color='green'>${env.CLINK_USER_EMAIL || 'N/A'} ✓</font>\n` +
+                  `**绑定状态**　<font color='green'>已绑定 ✓</font>`,
+              },
             },
-          },
-          { tag: 'hr' },
-          {
-            tag: 'div',
-            text: {
-              tag: 'lark_md',
-              content: '已有有效支付方式，无需重新绑卡。继续检测风控规则…',
+            { tag: 'hr' },
+            {
+              tag: 'div',
+              text: {
+                tag: 'lark_md',
+                content: '已有有效支付方式，无需重新绑卡。继续检测风控规则…',
+              },
             },
-          },
-        ],
+          ],
+        },
       });
       return `💳 检测到已绑定的支付方式。
 [SYSTEM DIRECTIVE] Payment methods found.
