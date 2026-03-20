@@ -170,6 +170,15 @@ await sleep(3000);
 const MAX_WAIT_MS = 60_000;
 const POLL_MS = 2_000;
 let waited = 0;
+
+// 1. 先等待网关下线 (用户执行 restart 导致进程停止)
+while (isGatewayUp() && waited < MAX_WAIT_MS) {
+  await sleep(POLL_MS);
+  waited += POLL_MS;
+}
+
+// 2. 再等待网关重新上线
+waited = 0;
 while (!isGatewayUp() && waited < MAX_WAIT_MS) {
   await sleep(POLL_MS);
   waited += POLL_MS;
