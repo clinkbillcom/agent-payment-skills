@@ -65,6 +65,8 @@ async function updatePaymentEnv(updates) {
 const SKILL_DIR = path.join(os.homedir(), '.openclaw', 'workspace', 'skills', 'agent-payment-skills');
 const CACHE_PATH = path.join(SKILL_DIR, 'clink.config.json');
 const LOG_PATH = path.join(SKILL_DIR, 'error.log');
+const LOCK_DIR = path.join(SKILL_DIR, 'locks');
+const LOCK_STALE_MS = 120000;
 const RUNTIME_SKILL_DIR = path.dirname(new URL(import.meta.url).pathname);
 const CARD_SENDER = path.join(RUNTIME_SKILL_DIR, 'scripts', 'send-feishu-card.mjs');
 
@@ -107,6 +109,55 @@ async function readPaymentMethodsCache() {
 async function writePaymentMethodsCache(cache) {
   await fs.mkdir(path.dirname(CACHE_PATH), { recursive: true });
   await fs.writeFile(CACHE_PATH, JSON.stringify(normalizeCache(cache), null, 2), 'utf8');
+}
+
+function buildCardStateLockName(orderId, status, sessionId) {
+  const parts = getOrderCardStateKeys(orderId, status, sessionId);
+  if (parts.length === 0) return 'global';
+  return parts[0].replace(/[^a-zA-Z0-9._-]+/g, '_');
+}
+
+async function withCardStateLock(orderId, status, sessionId, fn) {
+  const lockName = buildCardStateLockName(orderId, status, sessionId);
+  const lockPath = path.join(LOCK_DIR, `${lockName}.lock`);
+  await fs.mkdir(LOCK_DIR, { recursive: true });
+
+  const timeoutMs = 15000;
+  const retryMs = 100;
+  const startedAt = Date.now();
+
+  while (true) {
+    try {
+      const handle = await fs.open(lockPath, 'wx');
+      try {
+        await handle.writeFile(String(process.pid), 'utf8');
+        return await fn();
+      } finally {
+        await handle.close().catch(() => {});
+        await fs.unlink(lockPath).catch(() => {});
+      }
+    } catch (err) {
+      if (err?.code !== 'EEXIST') {
+        throw err;
+      }
+      try {
+        const stats = await fs.stat(lockPath);
+        if (Date.now() - stats.mtimeMs >= LOCK_STALE_MS) {
+          await fs.unlink(lockPath).catch(() => {});
+          continue;
+        }
+      } catch (statErr) {
+        if (statErr?.code === 'ENOENT') {
+          continue;
+        }
+        await logError('withCardStateLock/stat', statErr);
+      }
+      if (Date.now() - startedAt >= timeoutMs) {
+        throw new Error(`Timed out waiting for card-state lock: ${lockName}`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, retryMs));
+    }
+  }
 }
 
 function normalizeOrderStatus(status) {
@@ -312,34 +363,87 @@ function buildPaymentFailureCard({ amountDisplay, orderId, failureReason }) {
   };
 }
 
-function resolveChargeCardDisplay({ channelPaymentResponse, paySuccessInfo, fallbackCard, paymentMethodType }) {
-  const card = channelPaymentResponse?.paymentMethodDetail?.card || {};
-  const walletAccountTag =
-    card.walletAccountTag ||
-    channelPaymentResponse?.paymentMethodDetail?.walletAccountTag ||
-    paySuccessInfo?.walletAccountTag ||
-    null;
-  const brand =
-    card.cardBrand ||
-    card.paymentMethodType ||
-    paySuccessInfo?.cardBrand ||
-    paySuccessInfo?.paymentMethodType ||
-    paymentMethodType ||
-    fallbackCard?.cardBrand ||
-    fallbackCard?.paymentMethodType ||
-    "Unknow";
+function formatCachedCardDisplay(method) {
+  const brand = method.cardBrand || method.paymentMethodType || "Unknow";
+  if (method.walletAccountTag) {
+    return `${String(brand).toUpperCase()} ${method.walletAccountTag}`;
+  }
+  const last4 = method.cardLast4 || method.cardLastFour || "****";
+  return `${String(brand).toUpperCase()} ••••${last4}`;
+}
 
-  if (walletAccountTag) {
-    return `${String(brand).toUpperCase()} ${walletAccountTag}`;
+function formatPaymentCardDisplay(paymentInstrumentId, data, cache) {
+  if (Array.isArray(cache?.paymentMethods)) {
+    const matchedMethod = cache.paymentMethods.find(
+      (method) => method.paymentInstrumentId === paymentInstrumentId,
+    );
+    if (matchedMethod) {
+      return formatCachedCardDisplay(matchedMethod);
+    }
   }
 
-  const last4 =
-    card.last4No ||
-    paySuccessInfo?.cardLast4 ||
-    fallbackCard?.cardLast4 ||
-    fallbackCard?.cardLastFour ||
-    "****";
-  return `${String(brand).toUpperCase()} ••••${last4}`;
+  const walletAccountTag = data.walletAccountTag || data.wallet?.accountTag || null;
+  if (data.cardBrand || data.cardLast4 || walletAccountTag) {
+    const brand = data.cardBrand || data.cardScheme || data.paymentMethodType || data.paymentInstrumentType || "Unknow";
+    if (walletAccountTag) {
+      return `${String(brand).toUpperCase()} ${walletAccountTag}`;
+    }
+    return `${String(brand).toUpperCase()} ••••${data.cardLast4 || data.cardLastFour || "****"}`;
+  }
+
+  if (data.paymentMethod) {
+    const pm = data.paymentMethod;
+    if (pm.cardBrand || pm.cardLast4 || pm.walletAccountTag || pm.wallet?.accountTag) {
+      return formatCachedCardDisplay({
+        paymentMethodType: pm.paymentMethodType || pm.paymentInstrumentType,
+        cardBrand: pm.cardBrand || pm.cardScheme,
+        cardLast4: pm.cardLast4 || pm.cardLastFour,
+        walletAccountTag: pm.walletAccountTag || pm.wallet?.accountTag,
+      });
+    }
+    return `${pm.paymentMethodType || pm.paymentInstrumentType || "Unknow"} ${paymentInstrumentId}`.trim();
+  }
+  return "N/A";
+}
+
+function resolveChargeCardDisplay({ paymentInstrumentId, channelPaymentResponse, paySuccessInfo, fallbackCard, paymentMethodType, cache }) {
+  const card = channelPaymentResponse?.paymentMethodDetail?.card || {};
+  return formatPaymentCardDisplay(paymentInstrumentId, {
+    paymentMethodType,
+    cardBrand: card.cardBrand || paySuccessInfo?.cardBrand || fallbackCard?.cardBrand || null,
+    cardScheme: card.cardScheme || paySuccessInfo?.cardScheme || fallbackCard?.cardScheme || null,
+    cardLast4: card.last4No || paySuccessInfo?.cardLast4 || fallbackCard?.cardLast4 || null,
+    cardLastFour: fallbackCard?.cardLastFour || null,
+    walletAccountTag:
+      card.walletAccountTag ||
+      channelPaymentResponse?.paymentMethodDetail?.walletAccountTag ||
+      paySuccessInfo?.walletAccountTag ||
+      fallbackCard?.walletAccountTag ||
+      null,
+    paymentMethod: {
+      paymentMethodType:
+        card.paymentMethodType ||
+        paySuccessInfo?.paymentMethodType ||
+        fallbackCard?.paymentMethodType ||
+        paymentMethodType ||
+        null,
+      paymentInstrumentType:
+        card.paymentInstrumentType ||
+        paySuccessInfo?.paymentInstrumentType ||
+        fallbackCard?.paymentInstrumentType ||
+        null,
+      cardBrand: card.cardBrand || paySuccessInfo?.cardBrand || fallbackCard?.cardBrand || null,
+      cardScheme: card.cardScheme || paySuccessInfo?.cardScheme || fallbackCard?.cardScheme || null,
+      cardLast4: card.last4No || paySuccessInfo?.cardLast4 || fallbackCard?.cardLast4 || null,
+      cardLastFour: fallbackCard?.cardLastFour || null,
+      walletAccountTag:
+        card.walletAccountTag ||
+        channelPaymentResponse?.paymentMethodDetail?.walletAccountTag ||
+        paySuccessInfo?.walletAccountTag ||
+        fallbackCard?.walletAccountTag ||
+        null,
+    },
+  }, cache);
 }
 
 // ------------------------------------------------------------------
@@ -892,10 +996,12 @@ Call get_payment_method_setup_link immediately to prompt the user to bind a card
       psi.currencySymbol || "",
     );
     const cardDisplay = resolveChargeCardDisplay({
+      paymentInstrumentId: piId,
       channelPaymentResponse: cpr,
       paySuccessInfo: psi,
       fallbackCard: defaultCard,
       paymentMethodType: args.paymentMethodType || pmType,
+      cache,
     });
 
     if (data.channelPaymentResponse && data.channelPaymentResponse.flag3DS === 1) {
@@ -926,15 +1032,30 @@ After sending the card, you may add a brief natural-language reply if helpful, b
       });
 
       try {
-        if (!notifyTarget) {
-          throw new Error('notify target missing');
-        }
-        sendCardDirect(notifyTarget, successCard);
-        await updateOrderCardState(orderId, 1, sessionId, {
-          paymentSuccessCardSent: true,
-          paymentSuccessCardSentAt: new Date().toISOString(),
-          paymentSuccessCardSource: 'sync_charge_response',
+        const sendResult = await withCardStateLock(orderId, 1, sessionId, async () => {
+          const latestCache = normalizeCache(await readPaymentMethodsCache() || {});
+          const latestState = getOrderCardState(latestCache, orderId, 1, sessionId);
+          if (latestState?.paymentSuccessCardSent) {
+            return 'already_sent';
+          }
+          if (!notifyTarget) {
+            throw new Error('notify target missing');
+          }
+          sendCardDirect(notifyTarget, successCard);
+          await updateOrderCardState(orderId, 1, sessionId, {
+            paymentSuccessCardSent: true,
+            paymentSuccessCardSentAt: new Date().toISOString(),
+            paymentSuccessCardSource: 'sync_charge_response',
+          });
+          return 'sent';
         });
+        if (sendResult === 'already_sent') {
+          return `[SYSTEM DIRECTIVE] Payment already succeeded synchronously.
+The payment success card was already sent earlier.
+Do NOT send any additional card in this turn.
+Do NOT invoke the merchant-side recharge-status checker in this turn.
+Wait for the later async webhook to continue the merchant confirmation and original-task resume flow.`;
+        }
         return `[SYSTEM DIRECTIVE] Payment already succeeded synchronously.
 The payment success card has already been sent to the user.
 Do NOT send any additional card in this turn.
@@ -966,16 +1087,30 @@ Wait for the later async webhook to continue the merchant confirmation and origi
           });
 
       try {
-        if (!notifyTarget) {
-          throw new Error('notify target missing');
-        }
-        sendCardDirect(notifyTarget, failCard);
-        await updateOrderCardState(orderId, status, sessionId, {
-          paymentFailureCardSent: true,
-          paymentFailureCardSentAt: new Date().toISOString(),
-          paymentFailureCardSource: 'sync_charge_response',
-          paymentFailureKind: isRiskReject ? 'risk_reject' : 'terminal_failure',
+        const sendResult = await withCardStateLock(orderId, status, sessionId, async () => {
+          const latestCache = normalizeCache(await readPaymentMethodsCache() || {});
+          const latestState = getOrderCardState(latestCache, orderId, status, sessionId);
+          if (latestState?.paymentFailureCardSent) {
+            return 'already_sent';
+          }
+          if (!notifyTarget) {
+            throw new Error('notify target missing');
+          }
+          sendCardDirect(notifyTarget, failCard);
+          await updateOrderCardState(orderId, status, sessionId, {
+            paymentFailureCardSent: true,
+            paymentFailureCardSentAt: new Date().toISOString(),
+            paymentFailureCardSource: 'sync_charge_response',
+            paymentFailureKind: isRiskReject ? 'risk_reject' : 'terminal_failure',
+          });
+          return 'sent';
         });
+        if (sendResult === 'already_sent') {
+          return `[SYSTEM DIRECTIVE] Payment already ended with a terminal failure in the synchronous charge response.
+The failure card was already sent earlier.
+Do NOT send any additional card in this turn.
+Do NOT retry automatically.`;
+        }
         return `[SYSTEM DIRECTIVE] Payment already ended with a terminal failure in the synchronous charge response.
 The failure card has already been sent to the user.
 Do NOT send any additional card in this turn.

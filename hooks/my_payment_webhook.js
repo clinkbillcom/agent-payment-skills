@@ -22,6 +22,8 @@ const { execFileSync, spawn } = require('child_process');
 const SKILL_DIR = path.join(os.homedir(), '.openclaw', 'workspace', 'skills', 'agent-payment-skills');
 const CACHE_PATH = path.join(SKILL_DIR, 'clink.config.json');
 const LOG_PATH = path.join(SKILL_DIR, 'error.log');
+const LOCK_DIR = path.join(SKILL_DIR, 'locks');
+const LOCK_STALE_MS = 120000;
 const CARD_SENDER = `${SKILL_DIR}/scripts/send-feishu-card.mjs`;
 
 function normalizeCache(cache) {
@@ -79,6 +81,55 @@ async function writeCache(cache) {
   const normalized = normalizeCache(cache);
   normalized.cachedAt = new Date().toISOString();
   await fs.writeFile(CACHE_PATH, JSON.stringify(normalized, null, 2), 'utf8');
+}
+
+function buildCardStateLockName(orderId, status, sessionId) {
+  const parts = getOrderCardStateKeys(orderId, status, sessionId);
+  if (parts.length === 0) return 'global';
+  return parts[0].replace(/[^a-zA-Z0-9._-]+/g, '_');
+}
+
+async function withCardStateLock(orderId, status, sessionId, fn) {
+  const lockName = buildCardStateLockName(orderId, status, sessionId);
+  const lockPath = path.join(LOCK_DIR, `${lockName}.lock`);
+  await fs.mkdir(LOCK_DIR, { recursive: true });
+
+  const timeoutMs = 15000;
+  const retryMs = 100;
+  const startedAt = Date.now();
+
+  while (true) {
+    try {
+      const handle = await fs.open(lockPath, 'wx');
+      try {
+        await handle.writeFile(String(process.pid), 'utf8');
+        return await fn();
+      } finally {
+        await handle.close().catch(() => {});
+        await fs.unlink(lockPath).catch(() => {});
+      }
+    } catch (err) {
+      if (err?.code !== 'EEXIST') {
+        throw err;
+      }
+      try {
+        const stats = await fs.stat(lockPath);
+        if (Date.now() - stats.mtimeMs >= LOCK_STALE_MS) {
+          await fs.unlink(lockPath).catch(() => {});
+          continue;
+        }
+      } catch (statErr) {
+        if (statErr?.code === 'ENOENT') {
+          continue;
+        }
+        await logError('withCardStateLock/stat', statErr);
+      }
+      if (Date.now() - startedAt >= timeoutMs) {
+        throw new Error(`Timed out waiting for card-state lock: ${lockName}`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, retryMs));
+    }
+  }
 }
 
 function normalizeOrderStatus(status) {
@@ -433,9 +484,6 @@ After sending the card, you may add a brief natural-language reply if helpful, b
       const customerId = data.customerId || "N/A";
       const sessionId = data.sessionId || data.session_id || null;
       const sessionDisplay = sessionId || "无";
-      const orderCardState = getOrderCardState(cache, rawOrderId, 1, sessionId);
-      const successCardAlreadySent = !!orderCardState?.paymentSuccessCardSent;
-
       const pendingCard = {
         schema: "2.0",
         header: { title: { content: "✅ 支付成功", tag: "plain_text" }, template: "green" },
@@ -451,7 +499,25 @@ After sending the card, you may add a brief natural-language reply if helpful, b
         ? buildMerchantConfirmArgs(orderId, data.sessionId || data.session_id || null, merchantContext)
         : null;
 
-      if (successCardAlreadySent) {
+      const successSendResult = await withCardStateLock(rawOrderId, 1, sessionId, async () => {
+        const latestCache = await readCache();
+        const latestState = getOrderCardState(latestCache, rawOrderId, 1, sessionId);
+        if (latestState?.paymentSuccessCardSent) {
+          return 'already_sent';
+        }
+        const sent = await sendCardsDirect('agent_order.succeeded', [pendingCard]);
+        if (!sent) {
+          return 'send_failed';
+        }
+        await updateOrderCardState(rawOrderId, 1, sessionId, {
+          paymentSuccessCardSent: true,
+          paymentSuccessCardSentAt: new Date().toISOString(),
+          paymentSuccessCardSource: 'webhook',
+        });
+        return 'sent';
+      });
+
+      if (successSendResult === 'already_sent') {
         if (!merchantContext) {
           return null;
         }
@@ -480,20 +546,11 @@ ${buildMerchantConfirmCommand(merchantContext, merchantArgs)}
 Rules:
 1. Do NOT send the payment success card again.
 2. Do NOT ask the user any question.
-3. After the merchant confirms recharge, let the merchant skill continue its own success/failure and task-resume flow.`
+          3. After the merchant confirms recharge, let the merchant skill continue its own success/failure and task-resume flow.`
         };
       }
 
-      const sent = await sendCardsDirect('agent_order.succeeded', [pendingCard]);
-      if (sent) {
-        await updateOrderCardState(rawOrderId, 1, sessionId, {
-          paymentSuccessCardSent: true,
-          paymentSuccessCardSentAt: new Date().toISOString(),
-          paymentSuccessCardSource: 'webhook',
-        });
-      }
-
-      if (sent) {
+      if (successSendResult === 'sent') {
         if (!merchantContext) {
           return null;
         }
@@ -522,7 +579,7 @@ ${buildMerchantConfirmCommand(merchantContext, merchantArgs)}
 Rules:
 1. Do NOT send the payment success card again.
 2. Do NOT ask the user any question.
-3. After the merchant confirms recharge, let the merchant skill continue its own success/failure and task-resume flow.`
+          3. After the merchant confirms recharge, let the merchant skill continue its own success/failure and task-resume flow.`
         };
       }
 
@@ -582,13 +639,8 @@ After sending the card, you may add a brief natural-language reply if helpful, b
       const normalizedStatus = normalizeOrderStatus(status);
       const failureCode = data.failureCode || "";
       const failureReason = data.failureMessage || failureCode || "支付处理异常";
-      const orderCardState = getOrderCardState(await readCache(), rawOrderId, normalizedStatus, sessionId);
-      if (orderCardState?.paymentFailureCardSent) {
-        return null;
-      }
       const isCharged = status === "charged" || status === "paid";
       const title = isCharged ? "❌ 支付异常" : "❌ 支付失败";
-
       const failCard = {
         schema: "2.0",
         header: { title: { content: title, tag: "plain_text" }, template: "red" },
@@ -600,15 +652,30 @@ After sending the card, you may add a brief natural-language reply if helpful, b
               : "银行卡扣款失败，请检查卡片状态或更换支付方式后重试。如需更换支付方式，请告知我。" }
         ]}
       };
-
-      const sent = await sendCardsDirect('agent_order.failed', [failCard]);
-      if (sent) {
+      const failureSendResult = await withCardStateLock(rawOrderId, normalizedStatus, sessionId, async () => {
+        const latestCache = await readCache();
+        const latestState = getOrderCardState(latestCache, rawOrderId, normalizedStatus, sessionId);
+        if (latestState?.paymentFailureCardSent) {
+          return 'already_sent';
+        }
+        const sent = await sendCardsDirect('agent_order.failed', [failCard]);
+        if (!sent) {
+          return 'send_failed';
+        }
         await updateOrderCardState(rawOrderId, normalizedStatus, sessionId, {
           paymentFailureCardSent: true,
           paymentFailureCardSentAt: new Date().toISOString(),
           paymentFailureCardSource: 'webhook',
           paymentFailureKind: `${failureCode}${data.declinedCode || ''}`.includes('risk') ? 'risk_reject' : 'payment_failed',
         });
+        return 'sent';
+      });
+
+      if (failureSendResult === 'already_sent') {
+        return null;
+      }
+
+      if (failureSendResult === 'sent') {
         return null;
       }
 
