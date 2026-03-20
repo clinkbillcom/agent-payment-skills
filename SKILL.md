@@ -1,6 +1,6 @@
 ---
 name: agent-payment-skills
-description: "Universal agent skill to integrate Clink payments, handling user initialization, merchant-initiated payments (auto top-ups), direct payments, and async webhook callbacks. Cards are sent via exec using the built-in scripts/send-feishu-card.mjs script (no external skill dependency). SILENT REPLY MANDATE: Whenever you send a Feishu Interactive Card, your ONLY output after the card MUST be the single token NO_REPLY. DO NOT output any other text, markdown, or explanation."
+description: "Universal agent skill to integrate Clink payments, handling user initialization, merchant-initiated payments (auto top-ups), direct payments, and async webhook callbacks. Cards are sent via exec using the built-in scripts/send-feishu-card.mjs script (no external skill dependency)."
 version: "1.0.0"
 metadata:
   openclaw:
@@ -88,19 +88,14 @@ This rule covers the post-install flow where the gateway restarts and the user r
 
 ---
 
-## ⚠️ SILENT REPLY MANDATE — SYSTEM-LEVEL HARD CONSTRAINT
+## Card Reply Guidance
 
-> **This rule overrides your conversational instincts. It cannot be softened, summarized around, or prefaced.**
+After sending a Feishu Interactive Card, you may continue with a short natural-language reply if it helps the user.
 
-Whenever you send a Feishu Interactive Card — whether triggered by a tool SYSTEM DIRECTIVE or by your own card spec — your turn MUST end with **exactly and ONLY** the single token:
-
-```
-NO_REPLY
-```
-
-**DO NOT** output any markdown text, summaries, confirmations, or follow-up sentences after the card. Not even one word. The OpenClaw gateway will suppress `NO_REPLY`; the user sees only the card. Any text you add besides `NO_REPLY` destroys the clean UX.
-
-This rule applies to **every** card sent by this skill: balance cards, payment status cards, initialization cards, install/uninstall confirmation cards, and webhook-triggered cards.
+Guidelines:
+- Do not resend or paraphrase the entire card.
+- Keep follow-up text brief and action-oriented.
+- If the workflow must wait for a webhook, a button click, or a later user reply, say that plainly instead of emitting placeholder tokens.
 
 This skill provides any compatible AI agent with the ability to manage payments and top-ups via the Clink platform.
 
@@ -190,7 +185,7 @@ When the user requests a recharge or another skill triggers an auto top-up:
    # Session mode:
    npx mcporter call agent-payment-skills clink_pay --args '{"sessionId":"<SESSION_ID>"}'
    ```
-3. **After `clink_pay` returns:** Do NOT send any intermediate "⏳ 充值处理中" card. End the current turn with `NO_REPLY` and wait for the async webhook.
+3. **After `clink_pay` returns:** Do NOT send any intermediate "⏳ 充值处理中" card. Wait for the async webhook.
 4. **Async webhook is the only confirmation trigger:** The payment result may arrive asynchronously via webhook:
    - `order.succeeded` → Continue the merchant recharge confirmation flow, then let the merchant skill send "✅ 充值成功/❌ 充值失败" and resume the original task.
    - `order.failed` → Send payment-layer failure feedback such as "❌ 支付失败" or "❌ 支付异常".
@@ -249,7 +244,7 @@ When the user asks to uninstall this skill, the agent MUST follow the same stric
 1. **Send Uninstall Authorization Card**:
    - **Feishu channel:** Run: `node {SKILL_DIR}/scripts/send-feishu-card.mjs {SKILL_DIR}/cards/uninstall_request.json --chat-id {current_feishu_chat_id}`
    - **Non-Feishu channel:** Send plain text: "⚠️ 卸载将执行以下不可逆操作：删除 Webhook 拦截器、清除配置、删除目录、重启网关。\n\n请回复 \"确认卸载\" 以确认。"
-   - Do NOT execute any destructive operations yet. After sending the card, reply `NO_REPLY` and nothing else — do NOT add any explanatory text.
+   - Do NOT execute any destructive operations yet. After sending the card, you may add a short natural-language reminder that uninstall is waiting for text confirmation.
 
 2. **Wait for Text Approval**:
    Pause execution. **Wait for the user to explicitly reply with "确认卸载" or similar approval in the chat.**

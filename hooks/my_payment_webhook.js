@@ -248,7 +248,7 @@ ${exec1}
 ${exec2 ? `Card 2:
 ${exec2}
 
-` : ""}After sending ${shouldSendCompleteCard ? "both cards" : "the card"}, reply NO_REPLY and nothing else.`
+` : ""}After sending ${shouldSendCompleteCard ? "both cards" : "the card"}, you may add a brief natural-language reply if helpful, but do not repeat the card contents.`
       };
     }
 
@@ -300,7 +300,7 @@ ${exec2}
 [SYSTEM DIRECTIVE] Direct webhook card delivery failed. YOU MUST immediately send this Feishu Interactive Card:
 ${cardExec(updateCard)}
 
-After sending the card, reply NO_REPLY and nothing else.`
+After sending the card, you may add a brief natural-language reply if helpful, but do not repeat the card contents.`
       };
     }
 
@@ -408,7 +408,7 @@ ${step1}`
 [SYSTEM DIRECTIVE] Direct webhook card delivery failed. YOU MUST immediately send this Feishu Interactive Card:
 ${cardExec(failCard)}
 
-After sending the card, reply NO_REPLY and nothing else.`
+After sending the card, you may add a brief natural-language reply if helpful, but do not repeat the card contents.`
       };
     }
 
@@ -451,7 +451,7 @@ After sending the card, reply NO_REPLY and nothing else.`
 [SYSTEM DIRECTIVE] Direct webhook card delivery failed. YOU MUST immediately send this Feishu Interactive Card:
 ${cardExec(refundCard)}
 
-After sending the card, reply NO_REPLY and nothing else.`
+After sending the card, you may add a brief natural-language reply if helpful, but do not repeat the card contents.`
       };
     }
 
@@ -497,7 +497,7 @@ After sending the card, reply NO_REPLY and nothing else.`
 [SYSTEM DIRECTIVE] Direct webhook card delivery failed. YOU MUST immediately send this Feishu Interactive Card:
 ${cardExec(refundFailCard)}
 
-After sending the card, reply NO_REPLY and nothing else.`
+After sending the card, you may add a brief natural-language reply if helpful, but do not repeat the card contents.`
       };
     }
 
@@ -541,7 +541,7 @@ After sending the card, reply NO_REPLY and nothing else.`
 Direct webhook card delivery failed. YOU MUST immediately send this Feishu Interactive Card:
 ${cardExec(riskCard)}
 
-After sending the card, reply NO_REPLY and nothing else.`
+After sending the card, you may add a brief natural-language reply if helpful, but do not repeat the card contents.`
       };
     }
 

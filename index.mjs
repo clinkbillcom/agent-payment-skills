@@ -346,7 +346,7 @@ You MUST IMMEDIATELY call the "get_binding_link" tool to check for existing paym
 
 After calling "get_binding_link", its return payload will give you the exact card specification to send.
 You MUST send that Feishu Interactive Card.
-After sending the card, your turn MUST end with EXACTLY AND ONLY the token NO_REPLY. DO NOT OUTPUT A SINGLE WORD of markdown text before or after the card.`;
+After sending the card, you may add a brief natural-language reply if helpful, but do not repeat the card contents.`;
   } catch (err) {
     await logError('initialize_wallet', err);
     return `Failed to initialize wallet: ${err.message}`;
@@ -376,7 +376,7 @@ YOU MUST immediately send a Feishu Interactive Card to the user with the followi
   - 支付方式: "未绑定" (Red)
 - Description: "完成绑定后 Claw 才能通过 Clink 执行充值。\n\n[👉 点击这里绑定支付方式](${setupUrl})"
 
-After sending the card, your turn MUST end with EXACTLY AND ONLY the token NO_REPLY. DO NOT OUTPUT A SINGLE WORD of markdown text before or after the card.
+After sending the card, you may add a brief natural-language reply if helpful, but do not repeat the card contents.
 
 Extracted Binding Token for future use: ${bindingToken}`;
     } else {
@@ -393,7 +393,7 @@ YOU MUST immediately send a Feishu Interactive Card to the user with the followi
 - Description: "已有有效支付方式，无需重新绑卡。继续检测风控规则…"
 - No action buttons needed (this is an informational card during initialization).
 
-After sending the card, you MUST immediately call get_risk_rules_link to continue the initialization flow. Do NOT output NO_REPLY here.
+After sending the card, you MUST immediately call get_risk_rules_link to continue the initialization flow.
 
 Current Payment Methods: ${JSON.stringify(methods)}
 Extracted Binding Token for future use: ${bindingToken}`;
@@ -414,7 +414,7 @@ YOU MUST immediately send a Feishu Interactive Card to the user:
 - Template / Style: "🛡️ 查看风控规则" (Blue theme, header h-blue)
 - Description: "风控规则可限制自动充值的金额和频率，建议配置以保障资金安全。此步骤可选，可随时配置。\n\n[👉 点击这里配置风控规则](${riskUrl})"
 
-After sending the card, your turn MUST end with exactly and ONLY the token NO_REPLY. DO NOT output any other text.`;
+After sending the card, you may add a brief natural-language reply if helpful, but do not repeat the card contents.`;
   } catch (err) {
     await logError('get_risk_rules_link', err);
     return `Failed to get risk rules link: ${err.message}`;
@@ -433,7 +433,7 @@ YOU MUST immediately send a Feishu Interactive Card to the user:
   - Clink 账户: "${env.CLINK_USER_EMAIL || 'N/A'}"
 - Description: "绑定支付方式后，Clink 将代您自动完成 Token 充值。\n\n[👉 点击这里绑定支付方式](${setupUrl})"
 
-After sending the card, your turn MUST end with exactly and ONLY the token NO_REPLY. DO NOT output any other text.`;
+After sending the card, you may add a brief natural-language reply if helpful, but do not repeat the card contents.`;
   } catch (err) {
     await logError('get_payment_method_setup_link', err);
     return `Failed to get payment method setup link: ${err.message}`;
@@ -454,7 +454,7 @@ YOU MUST immediately send a Feishu Interactive Card to the user:
   - 已绑定数量: "${methods.length} 种"
 - Description: "查看已绑定的支付方式，切换默认卡，或添加新的支付方式。\n\n[👉 点击这里管理支付方式](${modifyUrl})"
 
-After sending the card, your turn MUST end with exactly and ONLY the token NO_REPLY. DO NOT output any other text.
+After sending the card, you may add a brief natural-language reply if helpful, but do not repeat the card contents.
 
 Current Payment Methods: ${JSON.stringify(methods)}`;
   } catch (err) {
@@ -546,7 +546,7 @@ YOU MUST send a Feishu Interactive Card to the user with the following details:
 - Status: "已更新 ✓" (Green)
 - Note: Tell the user that the new payment method will be used for future auto-recharges.
 
-After sending the card, your turn MUST end with exactly and ONLY the token NO_REPLY. DO NOT output any other text.
+After sending the card, you may add a brief natural-language reply if helpful, but do not repeat the card contents.
 
 Raw Data: ${data}`;
   } catch (err) {
@@ -684,12 +684,12 @@ The bank requires secondary confirmation. YOU MUST pause the current task and se
   - 订单号: "${orderId}"
 - Description: "银行要求对此次充值进行二次身份确认（3DS），任务已暂停等待您完成验证。\n\n[👉 点击这里完成 3DS 验证](${redirectUrl})"
 
-After sending the card, your turn MUST end with exactly and ONLY the token NO_REPLY. DO NOT output any other text. DO NOT continue until the webhook confirms order.succeeded or order.failed.`;
+After sending the card, you may add a brief natural-language reply if helpful, but do not repeat the card contents. DO NOT continue until the webhook confirms order.succeeded or order.failed.`;
     }
 
     return `[SYSTEM DIRECTIVE] Payment submitted successfully. Order is now processing.
 Do NOT send any intermediate "处理中" Feishu card to the user for this state.
-Your turn MUST end with exactly and ONLY the token NO_REPLY.
+Do not send any extra card in this turn. A brief natural-language reply is fine if helpful.
 Do NOT ask the user any question.
 Do NOT invoke the merchant-side recharge-status checker in this turn.
 The merchant-side recharge confirmation and original-task resume must happen only after the later async webhook wake for payment/order.succeeded arrives.`;
@@ -711,7 +711,7 @@ YOU MUST immediately send a Feishu Interactive Card to the user:
 - Button 1 (ghost): "查看账户设置"
 - Button 2 (ghost): "联系支持"
 
-After sending the card, your turn MUST end with exactly and ONLY the token NO_REPLY. DO NOT output any other text.`;
+After sending the card, you may add a brief natural-language reply if helpful, but do not repeat the card contents.`;
     }
 
     if (err.message.includes("CUSTOMER_VERIFY_FAILED") || (err.message.includes("邮箱") && err.message.includes("验证"))) {
@@ -726,7 +726,7 @@ YOU MUST immediately send a Feishu Interactive Card to the user:
 - Button 1 (red): "查看商户邮箱设置"
 - Button 2 (ghost): "联系支持"
 
-After sending the card, your turn MUST end with exactly and ONLY the token NO_REPLY. DO NOT output any other text.`;
+After sending the card, you may add a brief natural-language reply if helpful, but do not repeat the card contents.`;
     }
 
     if (code === 90101216 || err.message.includes("MERCHANT_NOT_FOUND")) {
@@ -739,7 +739,7 @@ YOU MUST immediately send a Feishu Interactive Card to the user:
 - Description: "请检查商户 ID 是否正确。如果持续出现此问题，请联系 Clink 支持。"
 - Button 1 (ghost): "联系支持"
 
-After sending the card, your turn MUST end with exactly and ONLY the token NO_REPLY. DO NOT output any other text.`;
+After sending the card, you may add a brief natural-language reply if helpful, but do not repeat the card contents.`;
     }
 
     if (code === 90101212 || err.message.includes("ORDER_HAS_ONE_IN_PROCESSING") || err.message.includes("处理中")) {
@@ -753,7 +753,7 @@ YOU MUST immediately send a Feishu Interactive Card to the user:
 - Description: "当前有一笔充值订单正在处理中，请等待完成后再发起新的充值请求。"
 - No action buttons needed.
 
-After sending the card, your turn MUST end with exactly and ONLY the token NO_REPLY. DO NOT output any other text. Wait for the previous order to complete (via webhook callback).`;
+After sending the card, you may add a brief natural-language reply if helpful, but do not repeat the card contents. Wait for the previous order to complete (via webhook callback).`;
     }
 
     if (code === 90101206 || err.message.includes("ORDER_AMOUNT") || err.message.includes("CURRENCY_INCORRECT") || err.message.includes("金额")) {
@@ -766,7 +766,7 @@ YOU MUST immediately send a Feishu Interactive Card to the user:
 - Description: "请检查充值金额和币种是否正确后重试。"
 - No action buttons needed.
 
-After sending the card, your turn MUST end with exactly and ONLY the token NO_REPLY. DO NOT output any other text.`;
+After sending the card, you may add a brief natural-language reply if helpful, but do not repeat the card contents.`;
     }
 
     if (code === 90101219 || code === 90101220 || err.message.includes("SESSION_NOT_FOUND") || err.message.includes("SESSION_EXPIRED")) {
@@ -792,7 +792,7 @@ YOU MUST immediately send a Feishu Interactive Card to the user:
 - Description: "充值请求中的商户与原始会话中记录的商户不一致，请重新发起充值。"
 - No action buttons needed.
 
-After sending the card, your turn MUST end with exactly and ONLY the token NO_REPLY. DO NOT output any other text.`;
+After sending the card, you may add a brief natural-language reply if helpful, but do not repeat the card contents.`;
     }
 
     if (code === 401 || code === 80102221 || code === 80102222 || code === 80102223) {
@@ -805,7 +805,7 @@ YOU MUST immediately send a Feishu Interactive Card to the user:
 - Description: "Clink 认证失败，可能是 API Key 已过期或无效。请尝试重新初始化钱包（initialize_wallet）。"
 - Button 1 (red): "重新初始化"
 
-After sending the card, your turn MUST end with exactly and ONLY the token NO_REPLY. DO NOT output any other text.`;
+After sending the card, you may add a brief natural-language reply if helpful, but do not repeat the card contents.`;
     }
 
     if (code === 80102212 || code === 80102213 || code === 80102203) {
@@ -836,7 +836,7 @@ YOU MUST immediately send a Feishu Interactive Card to the user:
 - Button 2 (ghost): "修改风控规则" (action: call get_risk_rules_link)
 - Button 3 (ghost): "暂停任务"
 
-After sending the card, your turn MUST end with exactly and ONLY the token NO_REPLY. DO NOT output any other text. Wait for the user to click a button. If the user chooses "继续充值", retry clink_pay with the same parameters. If "修改风控规则", call get_risk_rules_link first.`;
+After sending the card, you may add a brief natural-language reply if helpful, but do not repeat the card contents. Wait for the user to click a button. If the user chooses "继续充值", retry clink_pay with the same parameters. If "修改风控规则", call get_risk_rules_link first.`;
     }
 
     if (code === 90101200 || err.message.includes("DECLINE") || err.message.includes("拒绝")) {
@@ -861,7 +861,7 @@ Card 2:
 - Button 1 (red): "前往更换支付方式" (action: call get_payment_method_modify_link to open the payment method switch page)
 - Button 2 (ghost): "暂不处理"
 
-After sending both cards, your turn MUST end with exactly and ONLY the token NO_REPLY. DO NOT output any other text. Wait for the user to switch their payment method and explicitly ask to retry before calling clink_pay again.`;
+After sending both cards, you may add a brief natural-language reply if helpful, but do not repeat the card contents. Wait for the user to switch their payment method and explicitly ask to retry before calling clink_pay again.`;
     }
 
     if (code === 90101201) {
@@ -874,7 +874,7 @@ YOU MUST immediately send a Feishu Interactive Card to the user:
 - Description: "Clink 支付服务暂时不可用，请稍后重试。如果持续出现此问题，请联系支持。"
 - Button 1 (ghost): "联系支持"
 
-After sending the card, your turn MUST end with exactly and ONLY the token NO_REPLY. DO NOT output any other text.`;
+After sending the card, you may add a brief natural-language reply if helpful, but do not repeat the card contents.`;
     }
 
     return `[SYSTEM DIRECTIVE] Payment Failed: Unexpected error.
@@ -888,7 +888,7 @@ YOU MUST immediately send a Feishu Interactive Card to the user:
 - Description: "充值过程中出现异常，请稍后重试。如问题持续，请联系支付服务支持排查。"
 - No action buttons needed.
 
-After sending the card, your turn MUST end with exactly and ONLY the token NO_REPLY. DO NOT output any other text.`;
+After sending the card, you may add a brief natural-language reply if helpful, but do not repeat the card contents.`;
   }
 }
 
@@ -948,9 +948,8 @@ YOU MUST immediately send a Feishu Interactive Card to the user:
 - Description: "退款申请已提交至 Clink，正在等待处理。最终结果将通过后续通知自动推送。"
 - No action buttons needed.
 
-After sending the card, your turn MUST end with exactly and ONLY the token NO_REPLY.
-Do NOT output any extra text.
-Do NOT restate the refund details in natural language.
+After sending the card, you may add a brief natural-language reply if helpful, but do not repeat the card contents.
+Do NOT restate the refund details verbatim in natural language.
 Do NOT send this submission card more than once for the same tool result.
 Wait for the later refund webhook to deliver the final success/failure card.`;
   } catch (err) {
@@ -973,9 +972,8 @@ YOU MUST immediately send a Feishu Interactive Card to the user:
 - Description: "${failureDescription}"
 - No action buttons needed.
 
-After sending the card, your turn MUST end with exactly and ONLY the token NO_REPLY.
-Do NOT output any extra text.
-Do NOT restate the failure in natural language.`;
+After sending the card, you may add a brief natural-language reply if helpful, but do not repeat the card contents.
+Do NOT restate the failure verbatim in natural language.`;
   }
 }
 
@@ -1092,7 +1090,7 @@ try {
   - 绑定邮箱: "${userEmail ? userEmail + ' (待确认)' : '未设置'}" (Grey)
 - Description: "网关将在 3 秒后自动重启。\\n${emailInstruction}"${emailCodeBlock}
 
-After sending the card, your turn MUST end with exactly and ONLY the token NO_REPLY. DO NOT output any other text, markdown, or explanation.`;
+After sending the card, you may add a brief natural-language reply if helpful, but do not repeat the card contents.`;
 }
 
 async function handle_uninstall_system_hooks(args) {
@@ -1227,7 +1225,7 @@ ${results.map(r => `  - ${r}`).join("\n")}
 - Description: "正在卸载 Clink Payment 支付组件及相关配置。卸载完成后将自动重启 gateway 生效。"
 - No action buttons needed.
 
-After sending the card, your turn MUST end with exactly and ONLY the token NO_REPLY. DO NOT output any other text, markdown, or explanation.`;
+After sending the card, you may add a brief natural-language reply if helpful, but do not repeat the card contents.`;
 }
 
 // ------------------------------------------------------------------
