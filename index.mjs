@@ -2025,22 +2025,23 @@ async function handle_uninstall_system_hooks(args) {
   }
 
   const notifyScriptPath = path.join(OPENCLAW_DIR, 'cache', 'clink_uninstall_notify.mjs');
-  const uninstallCompletePayload = buildNotificationPayload(notifyDestination, {
-    notification: createNotification({
+  const uninstallCompleteMessage = renderNotificationMarkdown(
+    createNotification({
       title: '🗑️ 卸载已生效',
       theme: 'green',
       paragraphs: [
         '网关已重启完毕，Clink Payment 支付组件及全部配置已彻底清除。若需再次使用，请重新下发安装指令。',
       ],
     }),
-  });
+  );
   const notifyJsCode = `
 import { execFileSync } from 'child_process';
-const sendMessageScript = ${JSON.stringify(MESSAGE_SENDER)};
-const payload = ${JSON.stringify(JSON.stringify(uninstallCompletePayload))};
+const channel = ${JSON.stringify(notifyDestination.channel)};
+const targetId = ${JSON.stringify(notifyDestination.target.id)};
+const message = ${JSON.stringify(uninstallCompleteMessage)};
 
 try {
-  execFileSync(process.execPath, [sendMessageScript, '--payload', payload], { stdio: 'inherit' });
+  execFileSync('openclaw', ['message', 'send', '--channel', channel, '--target', targetId, '--message', message], { stdio: 'inherit' });
 } catch (err) {
   console.error('Failed to send uninstall notification:', err.message);
 }
