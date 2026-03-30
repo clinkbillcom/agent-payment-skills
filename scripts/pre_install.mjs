@@ -225,46 +225,90 @@ const postRestartNotification = createNotification({
 const postRestartPayload = buildNotificationPayload(notifyDestination, { notification: postRestartNotification });
 
 const notifyCode = `
-import { execFileSync, execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { appendFile } from 'fs/promises';
 
 const sendMessage = ${JSON.stringify(MESSAGE_SENDER)};
 const payload = ${JSON.stringify(JSON.stringify(postRestartPayload))};
 const log = ${JSON.stringify(path.join(SKILL_DIR, 'error.log'))};
+const initialDelayMs = 1000;
+const maxWaitForDownMs = 180000;
+const maxWaitForUpMs = 120000;
+const pollMs = 2000;
+const sendRetries = 3;
+const sendRetryDelayMs = 2000;
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-function isGatewayUp() {
+async function logLine(message) {
   try {
-    execSync('openclaw gateway status', { stdio: 'pipe', timeout: 3000 });
+    await appendFile(log, '[' + new Date().toISOString() + '] [restart-notify] ' + message + '\\n');
+  } catch {}
+}
+
+function isGatewayHealthy() {
+  try {
+    execFileSync('openclaw', ['gateway', 'status', '--require-rpc', '--json'], {
+      stdio: 'pipe',
+      timeout: 5000,
+    });
     return true;
   } catch { return false; }
 }
 
-await sleep(3000);
-const MAX_WAIT_MS = 60_000;
-const POLL_MS = 2_000;
-let waited = 0;
+await sleep(initialDelayMs);
+let waitedDown = 0;
+let observedDown = false;
 
 // 1. 先等待网关下线 (用户执行 restart 导致进程停止)
-while (isGatewayUp() && waited < MAX_WAIT_MS) {
-  await sleep(POLL_MS);
-  waited += POLL_MS;
+while (waitedDown <= maxWaitForDownMs) {
+  if (!isGatewayHealthy()) {
+    observedDown = true;
+    break;
+  }
+  await sleep(pollMs);
+  waitedDown += pollMs;
+}
+
+if (!observedDown) {
+  await logLine('gateway never went down before timeout (' + maxWaitForDownMs + 'ms)');
+  process.exit(1);
 }
 
 // 2. 再等待网关重新上线
-waited = 0;
-while (!isGatewayUp() && waited < MAX_WAIT_MS) {
-  await sleep(POLL_MS);
-  waited += POLL_MS;
+let waitedUp = 0;
+let observedUp = false;
+while (waitedUp <= maxWaitForUpMs) {
+  if (isGatewayHealthy()) {
+    observedUp = true;
+    break;
+  }
+  await sleep(pollMs);
+  waitedUp += pollMs;
 }
 
-try {
-  execFileSync(process.execPath, [sendMessage, '--payload', payload], { stdio: 'pipe' });
-  await appendFile(log, '[' + new Date().toISOString() + '] [notify] post-restart notification sent ok (waited ' + waited + 'ms)\\n');
-} catch (e) {
-  await appendFile(log, '[' + new Date().toISOString() + '] [notify] FAILED: ' + e.message + '\\n');
+if (!observedUp) {
+  await logLine('gateway did not become healthy before timeout (' + maxWaitForUpMs + 'ms)');
+  process.exit(1);
 }
+
+for (let attempt = 1; attempt <= sendRetries; attempt++) {
+  try {
+    execFileSync(process.execPath, [sendMessage, '--payload', payload], {
+      stdio: 'pipe',
+      timeout: 15000,
+    });
+    await logLine('post-restart notification sent on attempt ' + attempt + ' (down_wait=' + waitedDown + 'ms up_wait=' + waitedUp + 'ms)');
+    process.exit(0);
+  } catch (e) {
+    await logLine('send attempt ' + attempt + ' failed: ' + e.message);
+    if (attempt < sendRetries) {
+      await sleep(sendRetryDelayMs);
+    }
+  }
+}
+
+process.exit(1);
 `;
 
 await fs.mkdir(path.dirname(notifyScriptPath), { recursive: true });

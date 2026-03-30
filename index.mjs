@@ -341,6 +341,108 @@ function sendNotificationDirect(notifyDestination, notification) {
   );
 }
 
+function buildPostRestartNotifyScript({
+  sendMessageScript,
+  payload,
+  logPath,
+  initialDelayMs = 1000,
+  maxWaitForDownMs = 60000,
+  maxWaitForUpMs = 120000,
+  pollMs = 2000,
+  sendRetries = 3,
+  sendRetryDelayMs = 2000,
+}) {
+  return `
+import { execFileSync } from 'child_process';
+import { appendFile } from 'fs/promises';
+
+const sendMessageScript = ${JSON.stringify(sendMessageScript)};
+const payload = ${JSON.stringify(JSON.stringify(payload))};
+const logPath = ${JSON.stringify(logPath)};
+const initialDelayMs = ${JSON.stringify(initialDelayMs)};
+const maxWaitForDownMs = ${JSON.stringify(maxWaitForDownMs)};
+const maxWaitForUpMs = ${JSON.stringify(maxWaitForUpMs)};
+const pollMs = ${JSON.stringify(pollMs)};
+const sendRetries = ${JSON.stringify(sendRetries)};
+const sendRetryDelayMs = ${JSON.stringify(sendRetryDelayMs)};
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function logLine(message) {
+  try {
+    await appendFile(logPath, '[' + new Date().toISOString() + '] [restart-notify] ' + message + '\\n');
+  } catch {}
+}
+
+function isGatewayHealthy() {
+  try {
+    execFileSync('openclaw', ['gateway', 'status', '--require-rpc', '--json'], {
+      stdio: 'pipe',
+      timeout: 5000,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+await sleep(initialDelayMs);
+
+let waitedDown = 0;
+let observedDown = false;
+while (waitedDown <= maxWaitForDownMs) {
+  if (!isGatewayHealthy()) {
+    observedDown = true;
+    break;
+  }
+  await sleep(pollMs);
+  waitedDown += pollMs;
+}
+
+if (!observedDown) {
+  await logLine('gateway never went down before timeout (' + maxWaitForDownMs + 'ms)');
+  process.exit(1);
+}
+
+let waitedUp = 0;
+let observedUp = false;
+while (waitedUp <= maxWaitForUpMs) {
+  if (isGatewayHealthy()) {
+    observedUp = true;
+    break;
+  }
+  await sleep(pollMs);
+  waitedUp += pollMs;
+}
+
+if (!observedUp) {
+  await logLine('gateway did not become healthy before timeout (' + maxWaitForUpMs + 'ms)');
+  process.exit(1);
+}
+
+for (let attempt = 1; attempt <= sendRetries; attempt++) {
+  try {
+    execFileSync(process.execPath, [sendMessageScript, '--payload', payload], {
+      stdio: 'pipe',
+      timeout: 15000,
+    });
+    await logLine('post-restart notification sent on attempt ' + attempt + ' (down_wait=' + waitedDown + 'ms up_wait=' + waitedUp + 'ms)');
+    process.exit(0);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await logLine('send attempt ' + attempt + ' failed: ' + message);
+    if (attempt < sendRetries) {
+      await sleep(sendRetryDelayMs);
+    }
+  }
+}
+
+process.exit(1);
+`;
+}
+
 function cloneJsonValue(value) {
   return JSON.parse(JSON.stringify(value));
 }
@@ -1871,17 +1973,35 @@ async function handle_install_system_hooks(args) {
 
   const restartPayload = buildNotificationPayload(notifyDestination, { notification: restartNotification });
 
-  const notifyJsCode = `
-import { execFileSync } from 'child_process';
-const sendMessageScript = ${JSON.stringify(MESSAGE_SENDER)};
-const payload = ${JSON.stringify(JSON.stringify(restartPayload))};
+  const statusNotification = createNotification({
+    title: '🔌 安装 Clink Payment Skill',
+    theme: 'blue',
+    details: [
+      ['注册 Webhook 回调路由', '已完成 ✓'],
+      ['写入网关配置文件', '已完成 ✓'],
+      ['重启网关进程', '正在重启…'],
+    ],
+    paragraphs: ['网关重启完成后将自动发送下一步提示。'],
+  });
 
-try {
-  execFileSync(process.execPath, [sendMessageScript, '--payload', payload], { stdio: 'inherit' });
-} catch (err) {
-  console.error('Failed to send post-restart notification:', err.message);
-}
-`;
+  let statusNotificationSent = false;
+  let statusNotificationError = null;
+  try {
+    sendNotificationDirect(notifyDestination, { notification: statusNotification });
+    statusNotificationSent = true;
+  } catch (err) {
+    statusNotificationError = err;
+    await logError('install_system_hooks/sendInitialNotification', err);
+  }
+
+  const notifyJsCode = buildPostRestartNotifyScript({
+    sendMessageScript: MESSAGE_SENDER,
+    payload: restartPayload,
+    logPath: LOG_PATH,
+    initialDelayMs: 1000,
+    maxWaitForDownMs: 60000,
+    maxWaitForUpMs: 120000,
+  });
   await fs.mkdir(path.dirname(notifyScriptPath), { recursive: true });
   await fs.writeFile(notifyScriptPath, notifyJsCode, 'utf8');
 
@@ -1898,24 +2018,19 @@ try {
     ? `收到【✅ 网关重启完成】通知后，请直接回复您的新绑定邮箱。如果您想继续使用之前的邮箱绑定，直接发送：${userEmail}`
     : `收到【✅ 网关重启完成】通知后，请直接回复您的绑定邮箱完成初始化。`;
 
+  if (statusNotificationSent) {
+    return `DIRECT_SEND: Installation bootstrap completed. Gateway restart scheduled.
+
+[SYSTEM DIRECTIVE] The installation status notification was already sent directly. Do NOT send it again. Wait for the post-restart notification to guide the user through wallet initialization.`;
+  }
+
   return `SUCCESS: Webhook config updated. Gateway restart scheduled.
 
 ${formatNotificationInstruction({
   summary: 'Installation bootstrap completed.',
-  notifications: createNotification({
-    title: '✅ 依赖与路由注入成功',
-    theme: 'green',
-    details: [
-      ['Webhook 路由', '已就绪 ✓'],
-      ['网关状态', '即将重启'],
-      ['绑定邮箱', userEmail ? `${userEmail} (待确认)` : '未设置'],
-    ],
-    paragraphs: [
-      '网关将在 3 秒后自动重启。',
-      emailInstruction,
-    ],
-  }),
+  notifications: statusNotification,
   followUp: [
+    statusNotificationError ? `Initial direct-send failed: ${statusNotificationError.message}` : '',
     'After sending the notification, you may add a brief natural-language reply if helpful, but do not repeat the notification contents.',
   ],
 })}`;
