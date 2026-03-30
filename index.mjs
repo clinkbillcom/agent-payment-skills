@@ -7,7 +7,7 @@ import fs from "fs/promises";
 import path from "path";
 import os from "os";
 import https from "https";
-import { CONFIG } from "./config.js";
+import { CONFIG } from "./config.mjs";
 import { createNotification, renderNotificationMarkdown } from "./notification-utils.js";
 
 // ------------------------------------------------------------------
