@@ -7,6 +7,7 @@ import fs from "fs/promises";
 import path from "path";
 import os from "os";
 import https from "https";
+import { CONFIG } from "./config.js";
 
 // ------------------------------------------------------------------
 // CONFIG HELPERS
@@ -645,7 +646,7 @@ function resolveChargeCardDisplay({ paymentInstrumentId, channelPaymentResponse,
 // ------------------------------------------------------------------
 // API HELPERS
 // ------------------------------------------------------------------
-const BASE_URL = "https://api.clinkbill.com";
+const BASE_URL = CONFIG.API_BASE_URL;
 
 class ClinkApiError extends Error {
   constructor(code, msg, raw) {
