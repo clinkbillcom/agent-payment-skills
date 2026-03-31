@@ -128,6 +128,12 @@ npx mcporter config add agent-payment-skills "node $(pwd)/index.bundle.mjs"
 
 ---
 
+## 开发者文档
+
+- [商户 Skill 集成 Payment Skill 指南（v1.0.0）](docs/merchant-skill-payment-integration-v1.0.0.md)
+
+---
+
 ## 相关项目
 
 - [ModelMax Skills](https://github.com/modelmaxio/skills)

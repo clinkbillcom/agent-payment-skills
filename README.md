@@ -128,6 +128,12 @@ This is especially useful for recharge-based skills such as media generation ser
 
 ---
 
+## Developer Docs
+
+- [Merchant Skill Integration Guide for Payment Skill (v1.0.0)](docs/merchant-skill-payment-integration-v1.0.0.md)
+
+---
+
 ## Related
 
 - [ModelMax Skills](https://github.com/modelmaxio/skills)
