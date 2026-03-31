@@ -43,9 +43,10 @@ Agent Payment Skills 可以通过 Clink 为 OpenClaw Agent 增加钱包初始化
 ```bash
 git clone https://github.com/clinkbillcom/agent-payment-skills.git
 cd agent-payment-skills
-npm install
 npx mcporter --config "${OPENCLAW_HOME:-$HOME}/.openclaw/config/mcporter.json" config add agent-payment-skills "node $(pwd)/index.bundle.mjs"
 ```
+
+这里刻意跳过 `npm install`。本 Skill 直接使用仓库中已提交的 `index.bundle.mjs` 完成安装。
 
 ---
 

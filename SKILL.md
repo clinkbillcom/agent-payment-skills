@@ -297,6 +297,8 @@ When the user asks to view or manage their payment methods:
 
 ### 3. Post-Installation Setup (Strict Single-Step Workflow)
 
+The skill is pre-bundled. Do NOT run `npm install`.
+
 When the user asks to install this skill, the agent MUST follow this exact workflow:
 
 1. **Run pre-install immediately**
@@ -306,6 +308,7 @@ When the user asks to install this skill, the agent MUST follow this exact workf
    - **Other channels:** `node {SKILL_DIR}/scripts/pre_install.mjs --channel <CHANNEL> --target-id <TARGET_ID> --target-type <TARGET_TYPE>`
 
    This step is mandatory and must not be skipped.
+   Do NOT run `npm install` as part of this skill's install flow. This repo ships the committed `index.bundle.mjs`, so installation must use the existing bundle directly.
 
 2. **If pre-install fails**
    - Stop immediately.
