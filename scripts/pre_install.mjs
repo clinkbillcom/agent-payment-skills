@@ -232,9 +232,8 @@ const sendMessage = ${JSON.stringify(MESSAGE_SENDER)};
 const payload = ${JSON.stringify(JSON.stringify(postRestartPayload))};
 const log = ${JSON.stringify(path.join(SKILL_DIR, 'error.log'))};
 const initialDelayMs = 1000;
-const maxWaitForDownMs = 180000;
 const maxWaitForUpMs = 120000;
-const pollMs = 2000;
+const pollMs = 500;
 const sendRetries = 3;
 const sendRetryDelayMs = 2000;
 
@@ -246,49 +245,50 @@ async function logLine(message) {
   } catch {}
 }
 
-function isGatewayHealthy() {
+function getGatewayPid() {
   try {
-    execFileSync('openclaw', ['gateway', 'status', '--require-rpc', '--json'], {
-      stdio: 'pipe',
+    const out = execFileSync('openclaw', ['gateway', 'status', '--require-rpc', '--json'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
       timeout: 5000,
     });
-    return true;
-  } catch { return false; }
+    const parsed = JSON.parse(out);
+    if (parsed && parsed.service && parsed.service.runtime && parsed.service.runtime.pid) {
+      return parsed.service.runtime.pid;
+    }
+    return null;
+  } catch { return null; }
 }
 
 await sleep(initialDelayMs);
-let waitedDown = 0;
-let observedDown = false;
 
-// 1. 先等待网关下线 (用户执行 restart 导致进程停止)
-while (waitedDown <= maxWaitForDownMs) {
-  if (!isGatewayHealthy()) {
-    observedDown = true;
+let initialPid = null;
+for (let i = 0; i < 5; i++) {
+  initialPid = getGatewayPid();
+  if (initialPid) {
     break;
   }
   await sleep(pollMs);
-  waitedDown += pollMs;
 }
 
-if (!observedDown) {
-  await logLine('gateway never went down before timeout (' + maxWaitForDownMs + 'ms)');
-  process.exit(1);
+if (!initialPid) {
+  await logLine('Could not determine initial gateway PID, continuing anyway...');
 }
 
-// 2. 再等待网关重新上线
-let waitedUp = 0;
-let observedUp = false;
-while (waitedUp <= maxWaitForUpMs) {
-  if (isGatewayHealthy()) {
-    observedUp = true;
+let waited = 0;
+let isRestarted = false;
+while (waited <= maxWaitForUpMs) {
+  const currentPid = getGatewayPid();
+  if (currentPid && currentPid !== initialPid) {
+    isRestarted = true;
     break;
   }
   await sleep(pollMs);
-  waitedUp += pollMs;
+  waited += pollMs;
 }
 
-if (!observedUp) {
-  await logLine('gateway did not become healthy before timeout (' + maxWaitForUpMs + 'ms)');
+if (!isRestarted) {
+  await logLine('Gateway did not restart or become healthy before timeout (' + maxWaitForUpMs + 'ms)');
   process.exit(1);
 }
 

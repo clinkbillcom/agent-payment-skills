@@ -348,7 +348,7 @@ function buildPostRestartNotifyScript({
   initialDelayMs = 1000,
   maxWaitForDownMs = 60000,
   maxWaitForUpMs = 120000,
-  pollMs = 2000,
+  pollMs = 500,
   sendRetries = 3,
   sendRetryDelayMs = 2000,
 }) {
@@ -360,7 +360,6 @@ const sendMessageScript = ${JSON.stringify(sendMessageScript)};
 const payload = ${JSON.stringify(JSON.stringify(payload))};
 const logPath = ${JSON.stringify(logPath)};
 const initialDelayMs = ${JSON.stringify(initialDelayMs)};
-const maxWaitForDownMs = ${JSON.stringify(maxWaitForDownMs)};
 const maxWaitForUpMs = ${JSON.stringify(maxWaitForUpMs)};
 const pollMs = ${JSON.stringify(pollMs)};
 const sendRetries = ${JSON.stringify(sendRetries)};
@@ -376,49 +375,52 @@ async function logLine(message) {
   } catch {}
 }
 
-function isGatewayHealthy() {
+function getGatewayPid() {
   try {
-    execFileSync('openclaw', ['gateway', 'status', '--require-rpc', '--json'], {
-      stdio: 'pipe',
+    const out = execFileSync('openclaw', ['gateway', 'status', '--require-rpc', '--json'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
       timeout: 5000,
     });
-    return true;
+    const parsed = JSON.parse(out);
+    if (parsed && parsed.service && parsed.service.runtime && parsed.service.runtime.pid) {
+      return parsed.service.runtime.pid;
+    }
+    return null;
   } catch {
-    return false;
+    return null;
   }
 }
 
 await sleep(initialDelayMs);
 
-let waitedDown = 0;
-let observedDown = false;
-while (waitedDown <= maxWaitForDownMs) {
-  if (!isGatewayHealthy()) {
-    observedDown = true;
+let initialPid = null;
+for (let i = 0; i < 5; i++) {
+  initialPid = getGatewayPid();
+  if (initialPid) {
     break;
   }
   await sleep(pollMs);
-  waitedDown += pollMs;
 }
 
-if (!observedDown) {
-  await logLine('gateway never went down before timeout (' + maxWaitForDownMs + 'ms)');
-  process.exit(1);
+if (!initialPid) {
+  await logLine('Could not determine initial gateway PID, continuing anyway...');
 }
 
-let waitedUp = 0;
-let observedUp = false;
-while (waitedUp <= maxWaitForUpMs) {
-  if (isGatewayHealthy()) {
-    observedUp = true;
+let waited = 0;
+let isRestarted = false;
+while (waited <= maxWaitForUpMs) {
+  const currentPid = getGatewayPid();
+  if (currentPid && currentPid !== initialPid) {
+    isRestarted = true;
     break;
   }
   await sleep(pollMs);
-  waitedUp += pollMs;
+  waited += pollMs;
 }
 
-if (!observedUp) {
-  await logLine('gateway did not become healthy before timeout (' + maxWaitForUpMs + 'ms)');
+if (!isRestarted) {
+  await logLine('Gateway did not restart or become healthy before timeout (' + maxWaitForUpMs + 'ms)');
   process.exit(1);
 }
 
@@ -943,7 +945,8 @@ You MUST NOT output ANY text to the user yet.
 You MUST IMMEDIATELY call the "get_binding_link" tool to check for existing payment methods.
 
 After calling "get_binding_link", use the returned Markdown notification content for the current channel.
-After sending the notification, you may add a brief natural-language reply if helpful, but do not repeat the notification contents.`;
+If "get_binding_link" returns a DIRECT_SEND system directive, do NOT send any additional markdown or notification in this turn.
+Otherwise, follow its returned notification instruction exactly once.`;
   } catch (err) {
     await logError('initialize_wallet', err);
     return `Failed to initialize wallet: ${err.message}`;
