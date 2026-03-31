@@ -22,7 +22,7 @@ The goal is not to introduce `agent-payment-skills` as a product. The goal is to
 
 > How a merchant skill should integrate `agent-payment-skills` into its own agent orchestration so payment execution, merchant-side confirmation, idempotency, and original-task resume all behave correctly.
 
-This document is written against the current `main` branch contract.
+This document applies to the payment integration contract on the `main` branch.
 
 ## 1. When This Guide Applies
 
@@ -83,7 +83,7 @@ Purpose:
 
 - return the latest merchant-side payment configuration for the current payment
 
-Recommended output:
+Output:
 
 ```json
 {
@@ -105,7 +105,7 @@ Purpose:
 
 - confirm whether the merchant side has actually been credited after the payment skill considers the payment successful
 
-Recommended `main` branch input:
+Input:
 
 ```json
 {
@@ -113,7 +113,7 @@ Recommended `main` branch input:
 }
 ```
 
-Recommended output:
+Output:
 
 ```json
 {
@@ -137,7 +137,7 @@ Requirements:
 - it must tolerate repeated calls
 - it must distinguish `pending`, `paid`, and `failed`
 
-Recommended strict result type:
+Strict result type:
 
 ```json
 {

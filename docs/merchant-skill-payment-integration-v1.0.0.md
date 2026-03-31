@@ -19,7 +19,7 @@
 
 > 商户 Skill 应该如何在自己的 Agent 编排里接入 `agent-payment-skills`，并正确处理支付、到账确认、幂等和原任务恢复。
 
-本文基于 `main` 分支当前 contract 编写。
+本文适用于 `main` 分支对应的 payment integration contract。
 
 ## 1. 适用场景
 
@@ -80,7 +80,7 @@ Agent 不负责：
 
 - 返回本次支付应使用的最新商户配置
 
-推荐返回：
+输出：
 
 ```json
 {
@@ -102,7 +102,7 @@ Agent 不负责：
 
 - 在 payment skill 认为支付成功后，由商户侧确认是否真正到账
 
-当前 `main` 分支推荐输入：
+输入：
 
 ```json
 {
@@ -110,7 +110,7 @@ Agent 不负责：
 }
 ```
 
-推荐输出：
+输出：
 
 ```json
 {
@@ -134,7 +134,7 @@ Agent 不负责：
 - 必须能处理重复调用
 - 必须区分 `pending`、`paid`、`failed`
 
-严格结果类型建议：
+严格结果类型：
 
 ```json
 {
