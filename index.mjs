@@ -1045,9 +1045,8 @@ ${formatNotificationInstruction({
 
 async function handle_get_risk_rules_link() {
   try {
-    const { bindingUrl, env } = await fetchBindingData();
+    const { bindingUrl } = await fetchBindingData();
     const riskUrl = buildRedirectUrl(bindingUrl, "risk-rules-setup");
-
     const notification = createNotification({
       title: "🛡️ 查看风控规则",
       theme: "blue",
@@ -1056,6 +1055,18 @@ async function handle_get_risk_rules_link() {
       ],
       actions: [{ label: "点击这里配置风控规则", url: riskUrl }],
     });
+    const cache = await readPaymentMethodsCache() || {};
+    const notifyDestination = getNotifyDestination(cache);
+
+    if (notifyDestination) {
+      try {
+        sendNotificationDirect(notifyDestination, { notification });
+        return `[SYSTEM DIRECTIVE] DIRECT_SEND: Risk rules link generated.
+The notification has been sent. Do NOT send another card.`;
+      } catch (err) {
+        await logError('get_risk_rules_link/direct_send', err);
+      }
+    }
 
     return formatNotificationInstruction({
       summary: 'Risk rules link generated.',
@@ -1074,16 +1085,29 @@ async function handle_get_payment_method_setup_link() {
   try {
     const { bindingUrl, env } = await fetchBindingData();
     const setupUrl = buildRedirectUrl(bindingUrl, "payment-method-setup");
+    const notification = createNotification({
+      title: "💳 添加支付方式",
+      theme: "blue",
+      details: [["Clink 账户", env.CLINK_USER_EMAIL || "N/A"]],
+      paragraphs: ["绑定支付方式后，Clink 将代您自动完成 Token 充值。"],
+      actions: [{ label: "前往添加支付方式", url: setupUrl }],
+    });
+    const cache = await readPaymentMethodsCache() || {};
+    const notifyDestination = getNotifyDestination(cache);
+
+    if (notifyDestination) {
+      try {
+        sendNotificationDirect(notifyDestination, { notification });
+        return `[SYSTEM DIRECTIVE] DIRECT_SEND: Payment method setup link generated.
+The notification has been sent. Do NOT send another card.`;
+      } catch (err) {
+        await logError('get_payment_method_setup_link/direct_send', err);
+      }
+    }
 
     return formatNotificationInstruction({
       summary: 'Payment method setup link generated.',
-      notifications: createNotification({
-        title: "💳 添加支付方式",
-        theme: "blue",
-        details: [["Clink 账户", env.CLINK_USER_EMAIL || "N/A"]],
-        paragraphs: ["绑定支付方式后，Clink 将代您自动完成 Token 充值。"],
-        actions: [{ label: "前往添加支付方式", url: setupUrl }],
-      }),
+      notifications: notification,
       followUp: [
         'After sending the notification, you may add a brief natural-language reply if helpful, but do not repeat the notification contents.',
       ],
@@ -1099,19 +1123,34 @@ async function handle_get_payment_method_modify_link() {
     const { bindingUrl, methods } = await fetchBindingData();
     const modifyUrl = buildRedirectUrl(bindingUrl, "payment-method-modify");
     const defaultCard = methods.find(m => m.isDefault);
+    const notification = createNotification({
+      title: "⚙️ 管理支付方式",
+      theme: "blue",
+      details: [
+        ["当前支付方式", defaultCard ? formatPaymentMethodDisplay(defaultCard) : "未设置"],
+        ["已绑定数量", `${methods.length} 种`],
+      ],
+      paragraphs: ["查看已绑定的支付方式，切换默认卡，或添加新的支付方式。"],
+      actions: [{ label: "前往管理支付方式", url: modifyUrl }],
+    });
+    const cache = await readPaymentMethodsCache() || {};
+    const notifyDestination = getNotifyDestination(cache);
+
+    if (notifyDestination) {
+      try {
+        sendNotificationDirect(notifyDestination, { notification });
+        return `[SYSTEM DIRECTIVE] DIRECT_SEND: Payment method management link generated.
+The notification has been sent. Do NOT send another card.
+
+Current Payment Methods: ${JSON.stringify(methods)}`;
+      } catch (err) {
+        await logError('get_payment_method_modify_link/direct_send', err);
+      }
+    }
 
     return formatNotificationInstruction({
       summary: 'Payment method management link generated.',
-      notifications: createNotification({
-        title: "⚙️ 管理支付方式",
-        theme: "blue",
-        details: [
-          ["当前支付方式", defaultCard ? formatPaymentMethodDisplay(defaultCard) : "未设置"],
-          ["已绑定数量", `${methods.length} 种`],
-        ],
-        paragraphs: ["查看已绑定的支付方式，切换默认卡，或添加新的支付方式。"],
-        actions: [{ label: "前往管理支付方式", url: modifyUrl }],
-      }),
+      notifications: notification,
       followUp: [
         'After sending the notification, you may add a brief natural-language reply if helpful, but do not repeat the notification contents.',
         '',
