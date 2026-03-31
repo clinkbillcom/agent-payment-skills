@@ -102,17 +102,32 @@ function renderNotificationFeishuCard(notification) {
     if (elements.length > 0) {
       elements.push({ tag: 'hr' });
     }
-    elements.push({
-      tag: 'action',
-      actions: normalized.actions.map((action) => ({
+
+    const buttonElements = normalized.actions
+      .filter((action) => action.url)
+      .map((action) => ({
         tag: 'button',
         text: {
           tag: 'plain_text',
           content: action.label,
         },
-        ...(action.url ? { url: action.url } : {}),
-      })),
-    });
+        multi_url: {
+          url: action.url,
+          pc_url: action.url,
+          ios_url: action.url,
+          android_url: action.url,
+        },
+      }));
+
+    const passiveActions = normalized.actions.filter((action) => !action.url);
+    if (passiveActions.length > 0) {
+      elements.push({
+        tag: 'markdown',
+        content: passiveActions.map((action) => `- ${action.label}`).join('\n'),
+      });
+    }
+
+    elements.push(...buttonElements);
   }
 
   return {
