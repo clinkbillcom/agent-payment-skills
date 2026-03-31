@@ -235,7 +235,7 @@ const initialDelayMs = 1000;
 const maxWaitForUpMs = 120000;
 const pollMs = 500;
 const sendRetries = 3;
-const sendRetryDelayMs = 2000;
+const sendRetryDelayMs = 3000;
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
@@ -258,6 +258,13 @@ function getGatewayPid() {
     }
     return null;
   } catch { return null; }
+}
+
+function ensureGatewayRpcReady() {
+  execFileSync('openclaw', ['gateway', 'status', '--require-rpc'], {
+    stdio: ['ignore', 'ignore', 'ignore'],
+    timeout: 5000,
+  });
 }
 
 await sleep(initialDelayMs);
@@ -294,11 +301,12 @@ if (!isRestarted) {
 
 for (let attempt = 1; attempt <= sendRetries; attempt++) {
   try {
+    ensureGatewayRpcReady();
     execFileSync(process.execPath, [sendMessage, '--payload', payload], {
       stdio: 'pipe',
       timeout: 15000,
     });
-    await logLine('post-restart notification sent on attempt ' + attempt + ' (down_wait=' + waitedDown + 'ms up_wait=' + waitedUp + 'ms)');
+    await logLine('post-restart notification sent on attempt ' + attempt + ' (restart_wait=' + waited + 'ms)');
     process.exit(0);
   } catch (e) {
     await logLine('send attempt ' + attempt + ' failed: ' + e.message);
