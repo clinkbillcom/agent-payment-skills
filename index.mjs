@@ -100,6 +100,41 @@ function resolveOpenClawExecutable() {
   }
 }
 
+function probeGatewayRuntimePid(openclawBin) {
+  try {
+    const out = execFileSync(openclawBin, ['gateway', 'status', '--require-rpc', '--json'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 5000,
+    });
+    const parsed = JSON.parse(out);
+    const pid = parsed?.service?.runtime?.pid;
+    return typeof pid === 'number' || (typeof pid === 'string' && pid.trim())
+      ? { pid: String(pid), error: '' }
+      : { pid: null, error: 'gateway status did not include runtime pid' };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const stderr =
+      typeof err?.stderr === 'string'
+        ? err.stderr.trim()
+        : Buffer.isBuffer(err?.stderr)
+          ? err.stderr.toString('utf8').trim()
+          : '';
+    const stdout =
+      typeof err?.stdout === 'string'
+        ? err.stdout.trim()
+        : Buffer.isBuffer(err?.stdout)
+          ? err.stdout.toString('utf8').trim()
+          : '';
+    return {
+      pid: null,
+      error: [message, stderr && 'stderr: ' + stderr, stdout && 'stdout: ' + stdout]
+        .filter(Boolean)
+        .join(' | '),
+    };
+  }
+}
+
 function shellQuote(value) {
   return `'${String(value).replace(/'/g, `'\\''`)}'`;
 }
@@ -379,6 +414,7 @@ function buildPostRestartNotifyScript({
   sendMessageScript,
   payload,
   logPath,
+  initialPid = null,
   initialDelayMs = 1000,
   maxWaitForDownMs = 60000,
   maxWaitForUpMs = 120000,
@@ -395,6 +431,7 @@ const openclawBin = ${JSON.stringify(openclawBin)};
 const sendMessageScript = ${JSON.stringify(sendMessageScript)};
 const payload = ${JSON.stringify(JSON.stringify(payload))};
 const logPath = ${JSON.stringify(logPath)};
+const providedInitialPid = ${JSON.stringify(initialPid)};
 const initialDelayMs = ${JSON.stringify(initialDelayMs)};
 const maxWaitForDownMs = ${JSON.stringify(maxWaitForDownMs)};
 const maxWaitForUpMs = ${JSON.stringify(maxWaitForUpMs)};
@@ -485,11 +522,15 @@ async function waitForInitialPid(maxAttempts) {
 
 await sleep(initialDelayMs);
 
-const initialProbe = await waitForInitialPid(5);
+const initialProbe = providedInitialPid
+  ? { pid: providedInitialPid, error: '' }
+  : await waitForInitialPid(5);
 const initialPid = initialProbe.pid;
 
 if (!initialPid) {
   await logLine('rpc readiness probe did not return an initial PID; continuing without baseline.' + (initialProbe.error ? ' last_error=' + initialProbe.error : ''));
+} else if (providedInitialPid) {
+  await logLine('using provided baseline pid ' + initialPid);
 }
 
 let waitedDown = 0;
@@ -2232,11 +2273,14 @@ async function handle_install_system_hooks(args) {
     await logError('install_system_hooks/sendInitialNotification', err);
   }
 
+  const openclawBin = resolveOpenClawExecutable();
+  const initialGatewayProbe = probeGatewayRuntimePid(openclawBin);
   const notifyJsCode = buildPostRestartNotifyScript({
-    openclawBin: resolveOpenClawExecutable(),
+    openclawBin,
     sendMessageScript: MESSAGE_SENDER,
     payload: restartPayload,
     logPath: LOG_PATH,
+    initialPid: initialGatewayProbe.pid,
     initialDelayMs: 1000,
     maxWaitForDownMs: 60000,
     maxWaitForUpMs: 120000,
@@ -2246,7 +2290,6 @@ async function handle_install_system_hooks(args) {
 
   const { spawn } = await import('child_process');
   const nodeBin = process.execPath;
-  const openclawBin = resolveOpenClawExecutable();
 
   const restartChild = spawn('sh', ['-c', `sleep 3 && ${shellQuote(openclawBin)} gateway restart`], { detached: true, stdio: 'ignore' });
   restartChild.unref();

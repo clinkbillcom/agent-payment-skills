@@ -61,6 +61,41 @@ function resolveOpenClawExecutable() {
   }
 }
 
+function probeGatewayRuntimePid(openclawBin) {
+  try {
+    const out = execFileSync(openclawBin, ['gateway', 'status', '--require-rpc', '--json'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      timeout: 5000,
+    });
+    const parsed = JSON.parse(out);
+    const pid = parsed?.service?.runtime?.pid;
+    return typeof pid === 'number' || (typeof pid === 'string' && pid.trim())
+      ? { pid: String(pid), error: '' }
+      : { pid: null, error: 'gateway status did not include runtime pid' };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const stderr =
+      typeof err?.stderr === 'string'
+        ? err.stderr.trim()
+        : Buffer.isBuffer(err?.stderr)
+          ? err.stderr.toString('utf8').trim()
+          : '';
+    const stdout =
+      typeof err?.stdout === 'string'
+        ? err.stdout.trim()
+        : Buffer.isBuffer(err?.stdout)
+          ? err.stdout.toString('utf8').trim()
+          : '';
+    return {
+      pid: null,
+      error: [message, stderr && 'stderr: ' + stderr, stdout && 'stdout: ' + stdout]
+        .filter(Boolean)
+        .join(' | '),
+    };
+  }
+}
+
 function shellQuote(value) {
   return `'${String(value).replace(/'/g, `'\\''`)}'`;
 }
@@ -241,6 +276,7 @@ try {
 
 const notifyScriptPath = path.join(OPENCLAW_DIR, 'cache', 'clink_notify.mjs');
 const OPENCLAW_BIN = resolveOpenClawExecutable();
+const INITIAL_GATEWAY_PROBE = probeGatewayRuntimePid(OPENCLAW_BIN);
 const postRestartNotification = createNotification({
   title: '✅ Clink 支付组件已上线',
   theme: 'green',
@@ -263,6 +299,7 @@ const openclawBin = ${JSON.stringify(OPENCLAW_BIN)};
 const sendMessageScript = ${JSON.stringify(MESSAGE_SENDER)};
 const payload = ${JSON.stringify(JSON.stringify(postRestartPayload))};
 const logPath = ${JSON.stringify(path.join(SKILL_DIR, 'error.log'))};
+const providedInitialPid = ${JSON.stringify(INITIAL_GATEWAY_PROBE.pid)};
 const initialDelayMs = 1000;
 const maxWaitForDownMs = 60000;
 const maxWaitForUpMs = 120000;
@@ -351,11 +388,15 @@ async function waitForInitialPid(maxAttempts) {
 
 await sleep(initialDelayMs);
 
-const initialProbe = await waitForInitialPid(5);
+const initialProbe = providedInitialPid
+  ? { pid: providedInitialPid, error: '' }
+  : await waitForInitialPid(5);
 const initialPid = initialProbe.pid;
 
 if (!initialPid) {
   await logLine('rpc readiness probe did not return an initial PID; continuing without baseline.' + (initialProbe.error ? ' last_error=' + initialProbe.error : ''));
+} else if (providedInitialPid) {
+  await logLine('using provided baseline pid ' + initialPid);
 }
 
 let waitedDown = 0;
