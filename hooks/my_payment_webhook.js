@@ -381,9 +381,12 @@ function buildMerchantConfirmArgs(orderId, sessionId, context, triggerSource) {
 }
 
 function buildMerchantConfirmCommand(context, args) {
+  const configPath = process.env.MCPORTER_CONFIG_PATH || (process.env.OPENCLAW_HOME || process.env.HOME) + '/.openclaw/config/mcporter.json';
   return [
     'npx',
     'mcporter',
+    '--config',
+    configPath,
     'call',
     context.server,
     context.tool,
