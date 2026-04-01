@@ -252,12 +252,14 @@ When a user installs or uses this skill for the first time:
    npx mcporter --config "$MCPORTER_CONFIG_PATH" call agent-payment-skills get_binding_link --args '{}'
    ```
    - If none → the user gets a card with a link to bind one. **Wait for the `payment_method.added` webhook callback** before proceeding.
-   - If exists → skip to step 4.
+   - If exists and notify routing is available → `get_binding_link` will directly send both the "已绑定支付方式" card and the optional risk-rules follow-up card in the same flow. Do NOT call `get_risk_rules_link` again in that turn.
+   - If exists but direct notify routing is unavailable → send the returned notifications in order, then skip to step 5.
 4. **View Risk Rules (Optional):** Call `get_risk_rules_link` to let the user view and optionally configure risk rules. This step is NOT required — initialization is complete once a payment method is bound. Risk rules can be configured at any time.
    If calling via shell:
    ```
    npx mcporter --config "$MCPORTER_CONFIG_PATH" call agent-payment-skills get_risk_rules_link --args '{}'
    ```
+   This step is mainly for standalone "修改/查看风控规则" requests or for fallback paths where `get_binding_link` could not deliver the optional risk-rules follow-up directly.
 5. **Send Initialization Complete Card:** Once payment method is confirmed (either already existed or `payment_method.added` webhook received), send the "🎉 Clink Setup Complete!" card. Do NOT wait for risk rules.
 
 ### 2. Execute Payment (Direct or Auto Top-Up)

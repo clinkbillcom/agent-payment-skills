@@ -983,6 +983,18 @@ function buildRedirectUrl(bindingUrl, redirectPath) {
   return `${bindingUrl}${sep}redirectUrl=/${redirectPath}`;
 }
 
+function buildRiskRulesNotification(bindingUrl) {
+  const riskUrl = buildRedirectUrl(bindingUrl, "risk-rules-setup");
+  return createNotification({
+    title: "🛡️ 查看风控规则",
+    theme: "blue",
+    paragraphs: [
+      "风控规则可限制自动充值的金额和频率，建议配置以保障资金安全。此步骤可选，可随时配置。",
+    ],
+    actions: [{ label: "点击这里配置风控规则", url: riskUrl }],
+  });
+}
+
 // ------------------------------------------------------------------
 // TOOL IMPLEMENTATIONS
 // ------------------------------------------------------------------
@@ -1127,27 +1139,54 @@ ${formatNotificationInstruction({
         ],
         paragraphs: ["已有有效支付方式，无需重新绑卡。继续检测风控规则…"],
       });
+      const riskNotification = buildRiskRulesNotification(bindingUrl);
       let fallbackReason = 'missing_notify_destination';
+      let statusNotificationSent = false;
       if (notifyDestination) {
         try {
           sendNotificationDirect(notifyDestination, { notification });
-          return `[SYSTEM DIRECTIVE] DIRECT_SEND: The notification has been sent. Do NOT send another card.
-You MUST immediately call get_risk_rules_link to continue the initialization flow.
+          statusNotificationSent = true;
+          sendNotificationDirect(notifyDestination, { notification: riskNotification });
+          return `[SYSTEM DIRECTIVE] DIRECT_SEND: The payment-method status notification and risk-rules notification have been sent. Do NOT send another card.
 
 Current Payment Methods: ${JSON.stringify(methods)}
 Extracted Binding Token for future use: ${bindingToken}`;
         } catch (err) {
           fallbackReason = 'direct_send_failed';
-          await logError('get_binding_link/direct_send_bound', err);
+          await logError(
+            statusNotificationSent
+              ? 'get_binding_link/direct_send_bound_risk_followup'
+              : 'get_binding_link/direct_send_bound',
+            err,
+          );
         }
       }
+      if (statusNotificationSent) {
+        await logNotificationFallback('get_binding_link/bound_risk_followup', {
+          cache,
+          notification: riskNotification,
+          reason: 'direct_send_failed_after_status_notification',
+        });
+        return formatNotificationInstruction({
+          summary: 'Payment methods found. The bound-card notification was already sent; send only the risk-rules notification.',
+          notifications: riskNotification,
+          followUp: [
+            'Do NOT resend the payment-method status notification; it has already been delivered.',
+            'After sending the notification, you may add a brief natural-language reply if helpful, but do not repeat the notification contents.',
+            '',
+            `Current Payment Methods: ${JSON.stringify(methods)}`,
+            `Extracted Binding Token for future use: ${bindingToken}`,
+          ],
+        });
+      }
+
       await logNotificationFallback('get_binding_link/bound', { cache, notification, reason: fallbackReason });
-      return `💳 检测到已绑定的支付方式。
+      return `💳 检测到已绑定的支付方式，并附带风控规则入口。
 ${formatNotificationInstruction({
   summary: 'Payment methods found.',
-  notifications: notification,
+  notifications: [notification, riskNotification],
   followUp: [
-    'After sending the notification, you MUST immediately call get_risk_rules_link to continue the initialization flow.',
+    'Send both user-facing notifications in order. Do NOT call get_risk_rules_link again in this turn.',
     '',
     `Current Payment Methods: ${JSON.stringify(methods)}`,
     `Extracted Binding Token for future use: ${bindingToken}`,
@@ -1163,15 +1202,7 @@ ${formatNotificationInstruction({
 async function handle_get_risk_rules_link() {
   try {
     const { bindingUrl } = await fetchBindingData();
-    const riskUrl = buildRedirectUrl(bindingUrl, "risk-rules-setup");
-    const notification = createNotification({
-      title: "🛡️ 查看风控规则",
-      theme: "blue",
-      paragraphs: [
-        "风控规则可限制自动充值的金额和频率，建议配置以保障资金安全。此步骤可选，可随时配置。",
-      ],
-      actions: [{ label: "点击这里配置风控规则", url: riskUrl }],
-    });
+    const notification = buildRiskRulesNotification(bindingUrl);
     const cache = await readPaymentMethodsCache() || {};
     const notifyDestination = getNotifyDestination(cache);
     let fallbackReason = 'missing_notify_destination';
@@ -1586,15 +1617,30 @@ Call get_payment_method_setup_link immediately to prompt the user to bind a card
           );
 
           const shellQuote = (value) => `'${String(value).replace(/'/g, `'\\''`)}'`;
+          const launchLogPrefix = `[${new Date().toISOString()}] [merchant_confirmation]`;
           const cmd = [
             'npx',
             'mcporter',
+            '--config',
+            MCPORTER_CONFIG_PATH,
             'call',
             effectiveMerchantContext.server,
             effectiveMerchantContext.tool,
             '--args',
             JSON.stringify(merchantArgs),
           ].map(shellQuote).join(' ');
+          const loggedCmd = [
+            '{',
+            `printf '%s\\n' ${shellQuote(`${launchLogPrefix} start server=${effectiveMerchantContext.server} tool=${effectiveMerchantContext.tool} order=${orderId || 'N/A'} session=${sessionId || 'N/A'}`)}`,
+            `${cmd}`,
+            'status=$?',
+            `printf '%s\\n' ${shellQuote(`${launchLogPrefix} exit_code=`)}"$status"`,
+            'exit "$status"',
+            '}',
+            '>>',
+            shellQuote(LOG_PATH),
+            '2>&1',
+          ].join(' ');
 
           await logRequest('clink_pay.sync_success.trigger_merchant_confirmation', {
             context: effectiveMerchantContext,
@@ -1602,10 +1648,9 @@ Call get_payment_method_setup_link immediately to prompt the user to bind a card
           });
 
           try {
-            const child = spawn(cmd, [], {
+            const child = spawn('sh', ['-c', loggedCmd], {
               detached: true,
               stdio: 'ignore',
-              shell: true,
             });
             child.on('error', (err) => {
               logError('clink_pay.sync_success.trigger_merchant_confirmation.spawn', err);
