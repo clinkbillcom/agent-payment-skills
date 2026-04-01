@@ -299,31 +299,15 @@ When the user asks to view or manage their payment methods:
 
 The skill is pre-bundled. Do NOT run `npm install`.
 
-When the user asks to install this skill, the agent MUST follow this exact workflow:
+When the user asks to install this skill, follow `README.md` / `README-zh.md` only:
 
-1. **Run pre-install immediately**
-   Registers MCP, writes config, verifies the route write, spawns the post-restart notify process, and sends the status notification in one command:
-   - **Feishu group chat:** `node {SKILL_DIR}/scripts/pre_install.mjs --channel feishu --target-id {current_feishu_chat_id} --target-type chat_id`
-   - **Feishu direct message:** `node {SKILL_DIR}/scripts/pre_install.mjs --channel feishu --target-id {current_feishu_open_id} --target-type open_id`
-   - **Other channels:** `node {SKILL_DIR}/scripts/pre_install.mjs --channel <CHANNEL> --target-id <TARGET_ID> --target-type <TARGET_TYPE>`
+- Use the documented manual install command there.
+- Do not substitute a partial MCP-only setup for the documented install flow.
+- Do not reintroduce `npm install`; installation must use the committed `index.bundle.mjs`.
+- `pre_install.mjs` already schedules the gateway restart in the background; do not trigger a second manual restart after it succeeds.
+- If the post-restart initialization notification does not arrive, check the skill `error.log` for `[pre-install]` or `[restart-notify]` entries before claiming installation succeeded.
 
-   This step is mandatory and must not be skipped.
-   Do NOT run `npm install` as part of this skill's install flow. This repo ships the committed `index.bundle.mjs`, so installation must use the existing bundle directly.
-
-2. **If pre-install fails**
-   - Stop immediately.
-   - Report the error to the user.
-   - Do NOT restart the gateway.
-   - Do NOT claim the webhook route is configured.
-   - Do NOT claim installation succeeded.
-
-3. **Restart the gateway immediately after successful pre-install**
-   ```
-   openclaw gateway restart
-   ```
-   Run this immediately after `pre_install.mjs` exits successfully. The notify process may send the post-restart initialization card after the gateway is back up.
-
-4. **Truthfulness guardrail**
+**Truthfulness guardrail**
    The agent MUST NOT say any of the following unless `pre_install.mjs` has actually succeeded in the current session:
    - `Webhook route is ready`
    - `Installation completed`

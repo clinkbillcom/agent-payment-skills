@@ -38,15 +38,24 @@ Install Clink Payment Skills: https://github.com/clinkbillcom/agent-payment-skil
 
 After installation, the agent will guide you through the remaining setup.
 
-### Manual Install
+### Installation for OpenClaw
 
 ```bash
 git clone https://github.com/clinkbillcom/agent-payment-skills.git
 cd agent-payment-skills
-npx mcporter --config "${OPENCLAW_HOME:-$HOME}/.openclaw/config/mcporter.json" config add agent-payment-skills "node $(pwd)/index.bundle.mjs"
+node scripts/pre_install.mjs --channel <CHANNEL> --target-id <TARGET_ID> --target-type <TARGET_TYPE>
 ```
 
 `npm install` is intentionally skipped here. This skill is installed from the committed `index.bundle.mjs`.
+
+For Feishu, use one of:
+
+```bash
+node scripts/pre_install.mjs --channel feishu --target-id <CHAT_ID> --target-type chat_id
+node scripts/pre_install.mjs --channel feishu --target-id <OPEN_ID> --target-type open_id
+```
+
+`pre_install.mjs` already registers the MCP server, configures the webhook route, schedules the gateway restart, and queues the post-restart success notification. Do not run a second manual `openclaw gateway restart` after it succeeds.
 
 ---
 

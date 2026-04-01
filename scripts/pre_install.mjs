@@ -42,6 +42,7 @@ const CONFIG_PATH = path.join(OPENCLAW_DIR, 'openclaw.json');
 const MCPORTER_CONFIG_PATH = path.join(OPENCLAW_DIR, 'config', 'mcporter.json');
 const BUNDLE = path.join(SKILL_DIR, 'index.bundle.mjs');
 const MESSAGE_SENDER = path.join(SKILL_DIR, 'scripts', 'send-message.mjs');
+const LOG_PATH = path.join(SKILL_DIR, 'error.log');
 
 function resolveOpenClawExecutable() {
   const explicit = typeof process.env.OPENCLAW_BIN === 'string' ? process.env.OPENCLAW_BIN.trim() : '';
@@ -62,6 +63,13 @@ function resolveOpenClawExecutable() {
 
 function shellQuote(value) {
   return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
+async function logInstallError(message) {
+  try {
+    await fs.mkdir(path.dirname(LOG_PATH), { recursive: true });
+    await fs.appendFile(LOG_PATH, `[${new Date().toISOString()}] [pre-install] ${message}\n`);
+  } catch {}
 }
 
 // --- Parse args ---
@@ -449,6 +457,7 @@ try {
   console.log('  ✅ Status notification sent');
 } catch (e) {
   console.warn('  ⚠️  Could not send status notification:', e.message);
+  await logInstallError(`status notification failed: ${e.message}`);
 }
 
 console.log('\nPre-install complete. Gateway restart has been scheduled automatically.');

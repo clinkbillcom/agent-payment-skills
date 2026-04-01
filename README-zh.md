@@ -38,15 +38,24 @@ Agent Payment Skills 可以通过 Clink 为 OpenClaw Agent 增加钱包初始化
 
 安装完成后，Agent 会继续引导你完成后续配置。
 
-### 手动安装
+### Installation for OpenClaw
 
 ```bash
 git clone https://github.com/clinkbillcom/agent-payment-skills.git
 cd agent-payment-skills
-npx mcporter --config "${OPENCLAW_HOME:-$HOME}/.openclaw/config/mcporter.json" config add agent-payment-skills "node $(pwd)/index.bundle.mjs"
+node scripts/pre_install.mjs --channel <CHANNEL> --target-id <TARGET_ID> --target-type <TARGET_TYPE>
 ```
 
 这里刻意跳过 `npm install`。本 Skill 直接使用仓库中已提交的 `index.bundle.mjs` 完成安装。
+
+如果是飞书，请使用以下其中一种：
+
+```bash
+node scripts/pre_install.mjs --channel feishu --target-id <CHAT_ID> --target-type chat_id
+node scripts/pre_install.mjs --channel feishu --target-id <OPEN_ID> --target-type open_id
+```
+
+`pre_install.mjs` 会同时完成 MCP 注册、Webhook 路由配置、网关重启调度，以及重启后的成功通知准备。它成功后不要再手动执行第二次 `openclaw gateway restart`。
 
 ---
 
