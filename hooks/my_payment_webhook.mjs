@@ -1,4 +1,4 @@
-// my_payment_webhook.js
+// my_payment_webhook.mjs
 // OpenClaw webhook transform for Clink payment callbacks.
 // Placed in ~/.openclaw/hooks/transforms/ at install time.
 //
@@ -14,13 +14,15 @@
 //   9. agent_refund.rejected — refund rejected
 //   10. risk_rule.updated — risk rules changed
 
-const fs = require('fs/promises');
-const path = require('path');
-const { execFileSync, spawn } = require('child_process');
+import fs from 'fs/promises';
+import fsSync from 'fs';
+import path from 'path';
+import { execFileSync, spawn } from 'child_process';
+import { fileURLToPath, pathToFileURL } from 'url';
 
 const SKILL_DIR = typeof __AGENT_PAYMENT_SKILL_DIR__ === 'string'
   ? __AGENT_PAYMENT_SKILL_DIR__
-  : path.resolve(__dirname, '..');
+  : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CACHE_PATH = path.join(SKILL_DIR, 'clink.config.json');
 const LOG_PATH = path.join(SKILL_DIR, 'error.log');
 const LOCK_DIR = path.join(SKILL_DIR, 'locks');
@@ -29,7 +31,7 @@ const MESSAGE_SENDER = `${SKILL_DIR}/scripts/send-message.mjs`;
 const {
   createNotification,
   renderNotificationMarkdown,
-} = require(`${SKILL_DIR}/notification-utils.cjs`);
+} = await import(pathToFileURL(path.join(SKILL_DIR, 'notification-utils.js')).href);
 
 function normalizeCache(cache) {
   const normalized = cache && typeof cache === 'object' ? cache : {};
@@ -125,7 +127,7 @@ function getNotifyDestination(cache, preferred = null) {
 // Read notify destination from cache (stored at install time).
 let _notifyDestination = null;
 try {
-  const cache = normalizeCache(JSON.parse(require('fs').readFileSync(CACHE_PATH, 'utf8')));
+  const cache = normalizeCache(JSON.parse(fsSync.readFileSync(CACHE_PATH, 'utf8')));
   _notifyDestination = getNotifyDestination(cache);
 } catch {}
 
@@ -474,7 +476,7 @@ function getRefundMeta(data) {
   };
 }
 
-module.exports = async function(ctx) {
+export default async function(ctx) {
   const { type, data } = ctx.payload || {};
 
   if (!type || !data) {

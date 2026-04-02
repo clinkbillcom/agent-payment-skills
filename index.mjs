@@ -140,7 +140,7 @@ function shellQuote(value) {
 }
 
 async function renderWebhookModule(skillDir) {
-  const webhookTemplatePath = path.join(skillDir, 'hooks', 'my_payment_webhook.js');
+  const webhookTemplatePath = path.join(skillDir, 'hooks', 'my_payment_webhook.mjs');
   const webhookSource = await fs.readFile(webhookTemplatePath, 'utf8');
   return webhookSource.split('__AGENT_PAYMENT_SKILL_DIR__').join(JSON.stringify(skillDir));
 }
@@ -2244,7 +2244,7 @@ async function handle_clink_refund(args) {
 
 async function handle_install_system_hooks(args) {
   const skillDir = SKILL_DIR;
-  const hooksTarget = path.join(OPENCLAW_DIR, 'hooks', 'transforms', 'my_payment_webhook.js');
+  const hooksTarget = path.join(OPENCLAW_DIR, 'hooks', 'transforms', 'my_payment_webhook.mjs');
 
   let userEmail = "";
   try {
@@ -2265,6 +2265,7 @@ async function handle_install_system_hooks(args) {
   try {
     await fs.mkdir(path.dirname(hooksTarget), { recursive: true });
     await fs.writeFile(hooksTarget, await renderWebhookModule(skillDir), 'utf8');
+    await fs.unlink(path.join(OPENCLAW_DIR, 'hooks', 'transforms', 'my_payment_webhook.js')).catch(() => {});
   } catch (err) {
     await logError('install_system_hooks/copyWebhook', err);
     return `[SYSTEM DIRECTIVE] Installation FAILED at step 1 (copy webhook file): ${err.message}`;
@@ -2285,9 +2286,12 @@ async function handle_install_system_hooks(args) {
     }
 
     const CLINK_PATH = "/clink/payment";
-    const newMapping = { match: { path: CLINK_PATH }, transform: { module: "my_payment_webhook.js" } };
+    config.hooks.mappings = config.hooks.mappings.filter(
+      m => m.transform?.module !== "my_payment_webhook.js"
+    );
+    const newMapping = { match: { path: CLINK_PATH }, transform: { module: "my_payment_webhook.mjs" } };
     const alreadyExists = config.hooks.mappings.some(
-      m => m.transform?.module === "my_payment_webhook.js"
+      m => m.transform?.module === "my_payment_webhook.mjs"
     );
     if (!alreadyExists) { config.hooks.mappings.push(newMapping); changed = true; }
     if (changed) await saveConfig(config);
@@ -2373,13 +2377,20 @@ async function handle_uninstall_system_hooks(args) {
     return `[SYSTEM DIRECTIVE] Uninstall FAILED at step 0.5 (resolve notify destination): channel, target_id, and target_type are required when no cached notify destination is available. No uninstall actions were started.`;
   }
 
-  const hooksTarget = path.join(OPENCLAW_DIR, 'hooks', 'transforms', 'my_payment_webhook.js');
+  const hooksTarget = path.join(OPENCLAW_DIR, 'hooks', 'transforms', 'my_payment_webhook.mjs');
   try {
     await fs.unlink(hooksTarget);
     results.push("Webhook transform: removed ✓");
   } catch (err) {
     await logError('uninstall_system_hooks', err);
     results.push(err.code === 'ENOENT' ? "Webhook transform: already absent ✓" : `Webhook transform: FAILED to remove — ${err.message}`);
+  }
+  try {
+    await fs.unlink(path.join(OPENCLAW_DIR, 'hooks', 'transforms', 'my_payment_webhook.js'));
+  } catch (err) {
+    if (err?.code !== 'ENOENT') {
+      await logError('uninstall_system_hooks', err);
+    }
   }
 
   try {
@@ -2388,6 +2399,7 @@ async function handle_uninstall_system_hooks(args) {
       const before = config.hooks.mappings.length;
       config.hooks.mappings = config.hooks.mappings.filter(
         m => m.transform?.module !== "my_payment_webhook.js"
+          && m.transform?.module !== "my_payment_webhook.mjs"
       );
       if (config.hooks.mappings.length < before) {
         await saveConfig(config);

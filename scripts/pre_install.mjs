@@ -11,7 +11,7 @@
  * What it does (all in one):
  *   1. Registers the MCP server via npx mcporter --config <path> config add
  *   2. Stores notifyDestination in clink.config.json
- *   3. Copies hooks/my_payment_webhook.js → ~/.openclaw/hooks/transforms/
+ *   3. Copies hooks/my_payment_webhook.mjs → ~/.openclaw/hooks/transforms/
  *   4. Injects webhook mapping into ~/.openclaw/openclaw.json and verifies
  *   5. Schedules the gateway restart in the background
  *   6. Sends the install success notification immediately
@@ -172,7 +172,7 @@ function buildNotificationPayload(notifyDestination, notification) {
 }
 
 async function renderWebhookModule(skillDir) {
-  const webhookTemplatePath = path.join(skillDir, 'hooks', 'my_payment_webhook.js');
+  const webhookTemplatePath = path.join(skillDir, 'hooks', 'my_payment_webhook.mjs');
   const webhookSource = await fs.readFile(webhookTemplatePath, 'utf8');
   return webhookSource.split('__AGENT_PAYMENT_SKILL_DIR__').join(JSON.stringify(skillDir));
 }
@@ -230,9 +230,10 @@ try {
 
 // --- Step 2: Copy webhook file ---
 console.log('Step 2: Installing webhook transform...');
-const webhookDst = path.join(OPENCLAW_DIR, 'hooks', 'transforms', 'my_payment_webhook.js');
+const webhookDst = path.join(OPENCLAW_DIR, 'hooks', 'transforms', 'my_payment_webhook.mjs');
 await fs.mkdir(path.dirname(webhookDst), { recursive: true });
 await fs.writeFile(webhookDst, await renderWebhookModule(SKILL_DIR), 'utf8');
+await fs.unlink(path.join(OPENCLAW_DIR, 'hooks', 'transforms', 'my_payment_webhook.js')).catch(() => {});
 console.log('  ✅ Webhook copied');
 
 // --- Step 3: Inject config ---
@@ -245,14 +246,15 @@ if (!config.hooks.token) {
   config.hooks.token = crypto.randomBytes(32).toString('hex');
 }
 const CLINK_PATH = '/clink/payment';
-if (!config.hooks.mappings.some(m => m.transform?.module === 'my_payment_webhook.js')) {
-  config.hooks.mappings.push({ match: { path: CLINK_PATH }, transform: { module: 'my_payment_webhook.js' } });
+config.hooks.mappings = config.hooks.mappings.filter(m => m.transform?.module !== 'my_payment_webhook.js');
+if (!config.hooks.mappings.some(m => m.transform?.module === 'my_payment_webhook.mjs')) {
+  config.hooks.mappings.push({ match: { path: CLINK_PATH }, transform: { module: 'my_payment_webhook.mjs' } });
 }
 await saveConfig(config);
 
 // Verify the write actually landed
 const verify = await loadConfig();
-const routeOk = verify.hooks?.mappings?.some(m => m.transform?.module === 'my_payment_webhook.js');
+const routeOk = verify.hooks?.mappings?.some(m => m.transform?.module === 'my_payment_webhook.mjs');
 const webhookFileOk = await fs.access(webhookDst).then(() => true).catch(() => false);
 if (!routeOk) {
   console.error('  ❌ Verification failed: webhook route not found in openclaw.json after write');
@@ -263,7 +265,7 @@ if (!webhookFileOk) {
   process.exit(1);
 }
 console.log('  ✅ Config updated and verified');
-console.log('  ✅ Webhook route:', CLINK_PATH, '→ my_payment_webhook.js');
+console.log('  ✅ Webhook route:', CLINK_PATH, '→ my_payment_webhook.mjs');
 
 // --- Step 4: Schedule background restart ---
 console.log('Step 4: Scheduling gateway restart...');

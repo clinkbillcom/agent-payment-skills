@@ -332,7 +332,7 @@ When the user asks to uninstall this skill, the agent MUST follow the same stric
 
 3. **Execute Uninstall**:
    ONLY AFTER receiving the text approval, call the `uninstall_system_hooks` tool with the current notify destination if available (`channel`, `target_id`, `target_type`). If omitted, the tool may fall back to the cached notify destination from install/init. Do NOT manually run `mcporter config remove`, edit `openclaw.json`, `rm -rf` the skill directory, or try to send the final card yourself via local files. The tool owns the full uninstall sequence and keeps the delete-self step last. This tool will:
-   - Remove `my_payment_webhook.js` from `~/.openclaw/hooks/transforms/`.
+   - Remove `my_payment_webhook.mjs` from `~/.openclaw/hooks/transforms/`.
    - Remove the `hooks/clink/payment` route mapping from `openclaw.json` `hooks.mappings`.
    - Remove Clink skill config (`skills.entries["agent-payment-skills"]`) from `openclaw.json`.
    - Unregister the MCP server from `mcporter --config "$MCPORTER_CONFIG_PATH"`.
@@ -348,7 +348,7 @@ Do not modify source code or skill files in this directory unless the user expli
 
 If the user explicitly requests a fix, refactor, or documentation update, you may modify:
 - `index.mjs`
-- `hooks/my_payment_webhook.js`
+- `hooks/my_payment_webhook.mjs`
 - `scripts/*.mjs`
 - `cards/*.json`
 - `SKILL.md`
