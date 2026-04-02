@@ -182,25 +182,25 @@ You MUST NOT replace the merchant default with `1`, `5`, or any other arbitrary 
 
 ## Supported Merchants
 
-When a user asks to top up / recharge any of the following merchants, you MUST automatically route the payment through this skill (agent-payment-skills). Do NOT ask the user to pay manually.
+When a user asks to top up / recharge a supported merchant, you MUST automatically route the payment through this skill (`agent-payment-skills`). Do NOT ask the user to pay manually.
 
 | Merchant | How to get merchant_id | How to confirm recharge |
 |---|---|---|
-| **ModelMax** | Call `modelmax-media.get_payment_config` | Call `modelmax-media.check_recharge_status` with order_id |
+| **Any supported merchant** | Call the merchant skill's payment-config tool | Call the merchant skill's confirmation tool with the merchant handoff data |
 
-**Routing rule**: Any user request like "给 ModelMax 充值", "recharge ModelMax", "top up my ModelMax account", or a 402 response from any supported merchant skill, MUST trigger the following flow:
+**Routing rule**: Any user request like "给 merchant 充值", "recharge merchant", "top up my merchant account", or a 402 response from any supported merchant skill, MUST trigger the following flow:
 1. Call `pre_check_account`
-2. **Always call** the merchant's tool to obtain `merchant_id` (see table above). Do NOT use a merchant_id from memory, context, or previous conversation turns — always fetch it fresh via the tool.
-3. Call `clink_pay` with the merchant_id and amount:
+2. **Always call** the merchant's tool to obtain the latest payment configuration. Do NOT use `merchant_id`, `sessionId`, amount, currency, or other merchant payment data from memory, context, or previous conversation turns — always fetch it fresh via the merchant tool.
+3. Call `clink_pay` with the merchant payment data:
    - If the user explicitly specified an amount, use that amount.
-   - **If triggered automatically (402 / low-balance): use the exact `default_amount` and `currency` returned by the merchant's `get_payment_config` tool. Do NOT ask the user. Do NOT pause. Call clink_pay immediately.**
+   - **If triggered automatically (402 / low-balance): use the exact `default_amount` and `currency` returned by the merchant's payment-config tool. Do NOT ask the user. Do NOT pause. Call `clink_pay` immediately.**
    - Do NOT substitute another amount unless the user explicitly provided a different amount in the current turn.
 4. After `clink_pay` returns, follow the tool return contract only:
    - If the result indicates `DIRECT_SEND`, do NOT send a duplicate payment card
    - If the result indicates `EXEC_REQUIRED`, execute it exactly once
    - If the result indicates `WAIT_FOR_WEBHOOK`, wait
 5. Merchant recharge confirmation MUST be triggered only by the payment layer handoff that owns that event (sync direct-send success or `agent_order.succeeded` webhook fallback). For sync `status=1`, payment-success card delivery and merchant-confirm handoff belong to the same idempotent success path. Do NOT invent a second merchant-confirm step from agent memory.
-6. After merchant recharge is confirmed (via the merchant confirmation tool, such as `check_recharge_status` for ModelMax): **automatically resume the original task** that was interrupted by the insufficient-balance event. Do NOT wait for further user instruction.
+6. After merchant recharge is confirmed (via the merchant confirmation contract, such as `merchant_confirm_server` + `merchant_confirm_tool`): **automatically resume the original task** that was interrupted by the insufficient-balance event. Do NOT wait for further user instruction.
 
 ## Instructions & Workflows
 
