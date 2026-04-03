@@ -82,6 +82,7 @@ const LOG_PATH = path.join(SKILL_DIR, 'error.log');
 const LOCK_DIR = path.join(SKILL_DIR, 'locks');
 const LOCK_STALE_MS = 120000;
 const MESSAGE_SENDER = path.join(SKILL_DIR, 'scripts', 'send-message.mjs');
+const MERCHANT_CONFIRMATION_RUNNER = path.join(SKILL_DIR, 'scripts', 'run-merchant-confirmation.mjs');
 
 function resolveOpenClawExecutable() {
   const explicit = typeof process.env.OPENCLAW_BIN === 'string' ? process.env.OPENCLAW_BIN.trim() : '';
@@ -1704,6 +1705,14 @@ Call get_payment_method_setup_link immediately to prompt the user to bind a card
           if (latestState?.merchantConfirmationTriggered) {
             return 'already_completed';
           }
+          if (latestState?.merchantConfirmationDispatched) {
+            await logRequest('clink_pay.sync_success.skip_duplicate_merchant_confirmation', {
+              orderId,
+              sessionId,
+              reason: 'merchant_confirmation_already_in_flight',
+            });
+            return 'already_in_flight';
+          }
 
           const effectiveMerchantContext = latestCache.pendingMerchantConfirmation;
           if (!effectiveMerchantContext?.server || !effectiveMerchantContext?.tool) {
@@ -1716,39 +1725,23 @@ Call get_payment_method_setup_link immediately to prompt the user to bind a card
             buildMerchantPaymentHandoff(orderId, sessionId, effectiveNotifyDestination, 'sync_charge_response'),
           );
 
-          const shellQuote = (value) => `'${String(value).replace(/'/g, `'\\''`)}'`;
-          const launchLogPrefix = `[${new Date().toISOString()}] [merchant_confirmation]`;
-          const cmd = [
-            'npx',
-            'mcporter',
-            '--config',
-            MCPORTER_CONFIG_PATH,
-            'call',
-            effectiveMerchantContext.server,
-            effectiveMerchantContext.tool,
-            '--args',
-            JSON.stringify(merchantArgs),
-          ].map(shellQuote).join(' ');
-          const loggedCmd = [
-            '{',
-            `printf '%s\\n' ${shellQuote(`${launchLogPrefix} start server=${effectiveMerchantContext.server} tool=${effectiveMerchantContext.tool} order=${orderId || 'N/A'} session=${sessionId || 'N/A'}`)}`,
-            `${cmd}`,
-            'status=$?',
-            `printf '%s\\n' ${shellQuote(`${launchLogPrefix} exit_code=`)}"$status"`,
-            'exit "$status"',
-            '}',
-            '>>',
-            shellQuote(LOG_PATH),
-            '2>&1',
-          ].join(' ');
-
           await logRequest('clink_pay.sync_success.trigger_merchant_confirmation', {
             context: effectiveMerchantContext,
             args: merchantArgs,
           });
 
           try {
-            const child = spawn('sh', ['-c', loggedCmd], {
+            const child = spawn(process.execPath, [
+              MERCHANT_CONFIRMATION_RUNNER,
+              '--config-path', MCPORTER_CONFIG_PATH,
+              '--server', effectiveMerchantContext.server,
+              '--tool', effectiveMerchantContext.tool,
+              '--args-json', JSON.stringify(merchantArgs),
+              '--order-id', orderId || '',
+              '--session-id', sessionId || '',
+              '--pending-session-id', effectiveMerchantContext.sessionId || '',
+              '--trigger-source', 'sync_charge_response',
+            ], {
               detached: true,
               stdio: 'ignore',
             });
@@ -1762,15 +1755,10 @@ Call get_payment_method_setup_link immediately to prompt the user to bind a card
           }
 
           await updateOrderCardState(orderId, 1, sessionId, {
-            merchantConfirmationTriggered: true,
-            merchantConfirmationTriggeredAt: new Date().toISOString(),
-            merchantConfirmationTriggerSource: 'sync_charge_response',
+            merchantConfirmationDispatched: true,
+            merchantConfirmationDispatchedAt: new Date().toISOString(),
+            merchantConfirmationDispatchSource: 'sync_charge_response',
           });
-          const cacheAfterTrigger = normalizeCache(await readPaymentMethodsCache() || {});
-          if (cacheAfterTrigger.pendingMerchantConfirmation) {
-            delete cacheAfterTrigger.pendingMerchantConfirmation;
-            await writePaymentMethodsCache(cacheAfterTrigger);
-          }
           return 'completed';
         });
 

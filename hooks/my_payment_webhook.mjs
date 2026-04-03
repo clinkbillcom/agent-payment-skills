@@ -28,6 +28,7 @@ const LOG_PATH = path.join(SKILL_DIR, 'error.log');
 const LOCK_DIR = path.join(SKILL_DIR, 'locks');
 const LOCK_STALE_MS = 120000;
 const MESSAGE_SENDER = `${SKILL_DIR}/scripts/send-message.mjs`;
+const MERCHANT_CONFIRMATION_RUNNER = `${SKILL_DIR}/scripts/run-merchant-confirmation.mjs`;
 const {
   createNotification,
   renderNotificationMarkdown,
@@ -417,29 +418,23 @@ function buildMerchantConfirmArgs(orderId, sessionId, context, triggerSource) {
   return args;
 }
 
-function buildMerchantConfirmCommand(context, args) {
-  const configPath = process.env.MCPORTER_CONFIG_PATH || (process.env.OPENCLAW_HOME || process.env.HOME) + '/.openclaw/config/mcporter.json';
-  return [
-    'npx',
-    'mcporter',
-    '--config',
-    configPath,
-    'call',
-    context.server,
-    context.tool,
-    '--args',
-    JSON.stringify(args),
-  ].map(shellQuote).join(' ');
-}
-
 async function triggerMerchantConfirmation(context, args) {
   await logRequest('agent_order.succeeded.trigger_merchant_confirmation', { context, args });
   try {
-    const cmd = buildMerchantConfirmCommand(context, args);
-    const child = spawn(cmd, [], {
+    const configPath = process.env.MCPORTER_CONFIG_PATH || (process.env.OPENCLAW_HOME || process.env.HOME) + '/.openclaw/config/mcporter.json';
+    const child = spawn(process.execPath, [
+      MERCHANT_CONFIRMATION_RUNNER,
+      '--config-path', configPath,
+      '--server', context.server,
+      '--tool', context.tool,
+      '--args-json', JSON.stringify(args),
+      '--order-id', args?.payment_handoff?.order_id || '',
+      '--session-id', args?.payment_handoff?.session_id || '',
+      '--pending-session-id', context.sessionId || '',
+      '--trigger-source', 'webhook',
+    ], {
       detached: true,
       stdio: 'ignore',
-      shell: true,
     });
     child.on('error', (err) => {
       logError('agent_order.succeeded trigger_merchant_confirmation spawn', err);
@@ -676,6 +671,14 @@ ${formatNotificationInstruction(
         if (latestState?.merchantConfirmationTriggered) {
           return 'already_completed';
         }
+        if (latestState?.merchantConfirmationDispatched) {
+          await logRequest('agent_order.succeeded.skip_duplicate_merchant_confirmation', {
+            orderId: rawOrderId,
+            sessionId,
+            reason: 'merchant_confirmation_already_in_flight',
+          });
+          return 'already_in_flight';
+        }
 
         const effectiveMerchantContext = latestCache.pendingMerchantConfirmation || merchantContext;
         const effectiveMerchantArgs = effectiveMerchantContext
@@ -693,15 +696,14 @@ ${formatNotificationInstruction(
           };
         }
         await updateOrderCardState(rawOrderId, 1, sessionId, {
-          merchantConfirmationTriggered: true,
-          merchantConfirmationTriggeredAt: new Date().toISOString(),
-          merchantConfirmationTriggerSource: 'webhook',
+          merchantConfirmationDispatched: true,
+          merchantConfirmationDispatchedAt: new Date().toISOString(),
+          merchantConfirmationDispatchSource: 'webhook',
         });
-        await clearPendingMerchantConfirmation();
         return 'completed';
       });
 
-      if (successSendResult === 'already_completed' || successSendResult === 'completed') {
+      if (successSendResult === 'already_completed' || successSendResult === 'already_in_flight' || successSendResult === 'completed') {
         return null;
       }
 
@@ -1074,10 +1076,6 @@ function formatCard(paymentInstrumentId, data, cache) {
       });
     }
     return `${pm.paymentMethodType || pm.paymentInstrumentType || "Unknow"} ${paymentInstrumentId}`.trim();
-  }
-  return "N/A";
-}
-strumentId}`.trim();
   }
   return "N/A";
 }
