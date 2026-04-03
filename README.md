@@ -135,6 +135,7 @@ This is especially useful for recharge-based skills such as media generation ser
 ## Compatibility
 
 - OpenClaw
+- Recommended version: `2026.3.28`
 
 ---
 

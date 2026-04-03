@@ -35,7 +35,7 @@ tools:
   - name: set_default_payment_method
     description: Set a specific payment method as the default for future transactions.
   - name: pre_check_account
-    description: Run before clink_pay to verify account readiness (wallet initialized, payment method bound). Displays an account check status card to the user.
+    description: Run before clink_pay to verify account readiness (wallet initialized, payment method bound). On success it returns an internal readiness directive only; do not send a user-facing success card.
   - name: clink_pay
     description: Execute a payment via Clink. Supports direct mode (merchant_id + amount + currency) and session mode (sessionId from merchant). merchant_integration must include server, confirm_tool, and optional confirm_args.
   - name: install_system_hooks
@@ -143,6 +143,9 @@ Exactly one layer owns each card. Do NOT duplicate card delivery across tool, we
   - Agent MUST execute it exactly once
 - `WAIT_FOR_WEBHOOK`
   - Meaning: do nothing now; wait for async webhook handoff
+- `DATA_ONLY`
+  - Meaning: the tool returned data only; no notification was sent
+  - Agent may use the data to construct the next required response
 - `NO_REPLY`
   - Meaning: preserve exactly; do not append text, cards, or retries
 
@@ -162,8 +165,9 @@ There are only two valid amount sources for `clink_pay`:
    - If the user explicitly provides a concrete recharge amount in the current turn, you MUST use that amount.
    - This user-specified amount overrides the merchant default.
 
-2. Merchant default
-   - If the user does not explicitly provide a concrete amount in the current turn, you MUST use the exact `default_amount` returned by the merchant's payment-config tool.
+2. Merchant default (Direct Mode)
+   - In Direct Mode, if the user does not explicitly provide a concrete amount in the current turn, you MUST use the exact `default_amount` returned by the merchant's payment-config tool.
+   - In Session Mode, the amount is already bound to the `sessionId`. You MUST NOT provide an `amount` parameter.
 
 You MUST NOT invent a third amount from memory, prior turns, habit, or judgment.
 You MUST NOT replace the merchant default with `1`, `5`, or any other arbitrary amount unless the user explicitly asked for that amount in the current turn.
@@ -199,7 +203,7 @@ The merchant confirmation tool will receive a structured `payment_handoff` objec
    - If the result indicates `EXEC_REQUIRED`, execute it exactly once.
    - If the result indicates `WAIT_FOR_WEBHOOK`, wait.
 5. Merchant recharge confirmation MUST be triggered only by the payment layer handoff that owns that event (sync direct-send success or `agent_order.succeeded` webhook fallback). For sync `status=1`, payment-success card delivery and merchant-confirm handoff belong to the same idempotent success path.
-6. After merchant recharge is confirmed by the merchant's declared confirmation tool, automatically resume the interrupted merchant task. Do NOT wait for further user instruction.
+6. After merchant recharge is confirmed by the merchant's declared confirmation tool, let the merchant skill continue its own success/failure and task-resume flow. Do NOT manually attempt to resume the task unless the merchant tool explicitly instructs you to.
 
 `clink_pay` is the low-level payment executor. It should not discover merchant tools, fetch merchant config, guess merchant routing, or own merchant orchestration logic. When it hands success off to the merchant confirmation tool, it sends a structured `payment_handoff` payload instead of ad hoc top-level fields.
 
@@ -252,14 +256,14 @@ When a user installs or uses this skill for the first time:
    npx mcporter --config "$MCPORTER_CONFIG_PATH" call agent-payment-skills get_binding_link --args '{}'
    ```
    - If none → the user gets a card with a link to bind one. **Wait for the `payment_method.added` webhook callback** before proceeding.
-   - If exists and notify routing is available → `get_binding_link` will directly send both the "已绑定支付方式" card and the optional risk-rules follow-up card in the same flow. Do NOT call `get_risk_rules_link` again in that turn.
+   - If exists and notify routing is available → `get_binding_link` will directly send both the "Payment Method Already Bound" card and the optional risk-rules follow-up card in the same flow. Do NOT call `get_risk_rules_link` again in that turn.
    - If exists but direct notify routing is unavailable → send the returned notifications in order, then skip to step 5.
 4. **View Risk Rules (Optional):** Call `get_risk_rules_link` to let the user view and optionally configure risk rules. This step is NOT required — initialization is complete once a payment method is bound. Risk rules can be configured at any time.
    If calling via shell:
    ```
    npx mcporter --config "$MCPORTER_CONFIG_PATH" call agent-payment-skills get_risk_rules_link --args '{}'
    ```
-   This step is mainly for standalone "修改/查看风控规则" requests or for fallback paths where `get_binding_link` could not deliver the optional risk-rules follow-up directly.
+   This step is mainly for standalone "modify/view risk rules" requests or for fallback paths where `get_binding_link` could not deliver the optional risk-rules follow-up directly.
 5. **Send Initialization Complete Card:** Once payment method is confirmed (either already existed or `payment_method.added` webhook received), send the "🎉 Clink Setup Complete!" card. Do NOT wait for risk rules.
 
 ### 2. Execute Payment (Direct or Auto Top-Up)

@@ -135,6 +135,7 @@ node scripts/pre_install.mjs --channel feishu --target-id <OPEN_ID> --target-typ
 ## 兼容环境
 
 - OpenClaw
+- 推荐版本：`2026.3.28`
 
 ---
 
