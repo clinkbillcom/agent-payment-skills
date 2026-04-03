@@ -8,7 +8,11 @@ import path from "path";
 import os from "os";
 import https from "https";
 import { CONFIG } from "./config.mjs";
-import { createNotification, renderNotificationMarkdown } from "./notification-utils.js";
+import {
+  buildMessagePreviewTitle,
+  createMessageRequest,
+  renderMessageMarkdown,
+} from "./notification-utils.js";
 
 // ------------------------------------------------------------------
 // CONFIG HELPERS
@@ -173,6 +177,9 @@ function normalizeCache(cache) {
         type: normalized.notifyDestination.target.type.trim(),
         id: normalized.notifyDestination.target.id.trim(),
       },
+      ...(typeof normalized.notifyDestination.locale === 'string' && normalized.notifyDestination.locale.trim()
+        ? { locale: normalized.notifyDestination.locale.trim() }
+        : {}),
     };
   } else {
     normalized.notifyDestination = null;
@@ -203,6 +210,9 @@ function normalizeCache(cache) {
           type: pending.notifyDestination.target.type.trim(),
           id: pending.notifyDestination.target.id.trim(),
         },
+        ...(typeof pending.notifyDestination.locale === 'string' && pending.notifyDestination.locale.trim()
+          ? { locale: pending.notifyDestination.locale.trim() }
+          : {}),
       };
     } else {
       pending.notifyDestination = null;
@@ -239,11 +249,23 @@ async function logError(context, error) {
   try { await fs.appendFile(LOG_PATH, line, 'utf8'); } catch {}
 }
 
-async function logNotificationFallback(context, { cache, notification, reason }) {
+function extractMessageRequest(value) {
+  if (value?.message_key || value?.messageKey) {
+    return value;
+  }
+  if (value?.message && (value.message.message_key || value.message.messageKey)) {
+    return value.message;
+  }
+  return null;
+}
+
+async function logNotificationFallback(context, { cache, message, reason }) {
   const notifyDestination = getNotifyDestination(cache);
+  const messageRequest = extractMessageRequest(message);
   await logRequest(`${context}/fallback`, {
     reason,
-    notificationTitle: typeof notification?.title === 'string' ? notification.title : '',
+    messageKey: messageRequest?.message_key || messageRequest?.messageKey || '',
+    messageTitle: messageRequest ? buildMessagePreviewTitle(messageRequest) : '',
     hasNotifyDestination: Boolean(notifyDestination),
     notifyDestination: notifyDestination ? {
       channel: typeof notifyDestination.channel === 'string' ? notifyDestination.channel : '',
@@ -374,7 +396,7 @@ function getNotifyDestination(cache) {
   return getPendingNotifyDestination(normalizedCache);
 }
 
-function buildNotificationPayload(notifyDestination, notification) {
+function buildNotificationPayload(notifyDestination, message) {
   const channel = typeof notifyDestination?.channel === 'string' && notifyDestination.channel.trim()
     ? notifyDestination.channel.trim().toLowerCase()
     : '';
@@ -392,23 +414,27 @@ function buildNotificationPayload(notifyDestination, notification) {
     target: {
       type: targetType,
       id: targetId,
+      ...(typeof notifyDestination?.locale === 'string' && notifyDestination.locale.trim()
+        ? { locale: notifyDestination.locale.trim() }
+        : {}),
     },
     deliver: true,
   };
-  if (notification?.notification && typeof notification.notification === 'object' && !Array.isArray(notification.notification)) {
-    payload.notification = cloneJsonValue(notification.notification);
+  const messageRequest = extractMessageRequest(message);
+  if (!messageRequest) {
+    throw new Error('message payload must include message_key');
   }
-  if (notification?.card) {
-    payload.card = notification.card;
-  }
-  if (typeof notification?.text === 'string' && notification.text.trim()) {
-    payload.text = notification.text.trim();
+  payload.message_key = String(messageRequest.message_key || messageRequest.messageKey || '').trim();
+  payload.vars = cloneJsonValue(messageRequest.vars || {});
+  payload.locale = typeof messageRequest.locale === 'string' ? messageRequest.locale : 'auto';
+  if (messageRequest.delivery_policy || messageRequest.deliveryPolicy) {
+    payload.delivery_policy = cloneJsonValue(messageRequest.delivery_policy || messageRequest.deliveryPolicy);
   }
   return payload;
 }
 
-function sendNotificationDirect(notifyDestination, notification) {
-  const payload = buildNotificationPayload(notifyDestination, notification);
+function sendNotificationDirect(notifyDestination, message) {
+  const payload = buildNotificationPayload(notifyDestination, message);
   if (!payload.target?.id) {
     throw new Error('notify target missing');
   }
@@ -628,7 +654,7 @@ function formatNotificationInstruction({ summary, notifications, followUp = [] }
     sections.push(
       items
         .map((notification, index) => {
-          const body = renderNotificationMarkdown(notification);
+          const body = renderMessageMarkdown(notification);
           if (items.length === 1) return body;
           return `Notification ${index + 1}:\n${body}`;
         })
@@ -662,6 +688,13 @@ function parseNotifyDestinationArgs(args) {
   const targetType = typeof args?.target_type === 'string' && args.target_type.trim()
     ? args.target_type.trim()
     : '';
+  const locale = typeof args?.locale === 'string' && args.locale.trim()
+    ? args.locale.trim()
+    : typeof args?.user_locale === 'string' && args.user_locale.trim()
+      ? args.user_locale.trim()
+      : typeof args?.language === 'string' && args.language.trim()
+        ? args.language.trim()
+        : '';
   const hasAny = Boolean(channel || targetId || targetType || chatId || openId);
   if (hasAny) {
     if (chatId) {
@@ -682,6 +715,7 @@ function parseNotifyDestinationArgs(args) {
         type: targetType,
         id: targetId,
       },
+      ...(locale ? { locale } : {}),
     };
   }
 
@@ -768,6 +802,8 @@ function buildMerchantPaymentHandoff(orderId, sessionId, notifyDestination, trig
   handoff.notify_target = {
     type: notifyDestination.target.type,
     id: notifyDestination.target.id,
+    ...(notifyDestination.locale ? { locale: notifyDestination.locale } : {}),
+
   };
   return handoff;
 }
@@ -839,43 +875,35 @@ function formatAmountWithSymbol(amount, currency = "USD", symbol = "") {
 }
 
 function buildPaymentSuccessNotification({ amountDisplay, cardDisplay, orderId }) {
-  return createNotification({
-    title: "✅ 支付成功",
-    theme: "green",
-    details: [
-      ["支付金额", amountDisplay],
-      ["扣款方式", cardDisplay],
-      ["Clink 订单号", orderId || "N/A"],
-    ],
-    paragraphs: ["已完成扣款，正在等待商户确认到账…"],
+  return createMessageRequest({
+    messageKey: 'payment.success',
+    vars: {
+      amountDisplay,
+      cardDisplay,
+      orderId,
+    },
   });
 }
 
 function buildRiskRejectNotification({ amountDisplay, message, orderId }) {
-  return createNotification({
-    title: "🛡️ 风控规则触发：充值被拦截",
-    theme: "red",
-    details: [
-      ["充值金额", amountDisplay],
-      ["风控状态", "已拦截"],
-      ["触发原因", message || "风控规则触发"],
-      ["订单号", orderId || "N/A"],
-    ],
-    paragraphs: [message || "当前充值请求触发了风控限制，请调整规则后重试。"],
+  return createMessageRequest({
+    messageKey: 'payment.risk_reject',
+    vars: {
+      amountDisplay,
+      message,
+      orderId,
+    },
   });
 }
 
 function buildPaymentFailureNotification({ amountDisplay, orderId, failureReason }) {
-  return createNotification({
-    title: "❌ 支付失败",
-    theme: "red",
-    details: [
-      ["支付金额", amountDisplay],
-      ["支付状态", "扣款失败"],
-      ["失败原因", failureReason || "支付处理异常"],
-      ["订单号", orderId || "N/A"],
-    ],
-    paragraphs: ["支付未完成，请检查支付方式或稍后重试。"],
+  return createMessageRequest({
+    messageKey: 'payment.failure',
+    vars: {
+      amountDisplay,
+      orderId,
+      failureReason,
+    },
   });
 }
 
@@ -1069,13 +1097,9 @@ function buildRedirectUrl(bindingUrl, redirectPath) {
 
 function buildRiskRulesNotification(bindingUrl) {
   const riskUrl = buildRedirectUrl(bindingUrl, "risk-rules-setup");
-  return createNotification({
-    title: "🛡️ 查看风控规则",
-    theme: "blue",
-    paragraphs: [
-      "风控规则可限制自动充值的金额和频率，建议配置以保障资金安全。此步骤可选，可随时配置。",
-    ],
-    actions: [{ label: "点击这里配置风控规则", url: riskUrl }],
+  return createMessageRequest({
+    messageKey: 'risk.rules_link',
+    vars: { riskUrl },
   });
 }
 
@@ -1176,20 +1200,17 @@ async function handle_get_binding_link() {
 
     if (methods.length === 0) {
       const setupUrl = buildRedirectUrl(bindingUrl, "payment-method-setup");
-      const notification = createNotification({
-        title: "💳 需要绑定支付方式",
-        theme: "blue",
-        details: [
-          ["Clink 账户", env.CLINK_USER_EMAIL || "N/A"],
-          ["支付方式", "未绑定"],
-        ],
-        paragraphs: ["完成绑定后 Claw 才能通过 Clink 执行充值。"],
-        actions: [{ label: "立即绑定支付方式", url: setupUrl }],
+      const notification = createMessageRequest({
+        messageKey: 'payment.method.binding_required',
+        vars: {
+          email: env.CLINK_USER_EMAIL || 'N/A',
+          setupUrl,
+        },
       });
       let fallbackReason = 'missing_notify_destination';
       if (notifyDestination) {
         try {
-          sendNotificationDirect(notifyDestination, { notification });
+          sendNotificationDirect(notifyDestination, notification);
           return `[SYSTEM DIRECTIVE] DIRECT_SEND: The notification has been sent. Do NOT send another card.
 Wait for the payment_method.added webhook before continuing initialization.
 
@@ -1199,7 +1220,7 @@ Extracted Binding Token for future use: ${bindingToken}`;
           await logError('get_binding_link/direct_send_unbound', err);
         }
       }
-      await logNotificationFallback('get_binding_link/unbound', { cache, notification, reason: fallbackReason });
+      await logNotificationFallback('get_binding_link/unbound', { cache, message: notification, reason: fallbackReason });
       return `Clink 账户检测：尚未绑定支付方式。
 ${formatNotificationInstruction({
   summary: 'No payment methods bound.',
@@ -1213,24 +1234,21 @@ ${formatNotificationInstruction({
     } else {
       const defaultCard = methods.find(m => m.isDefault) || methods[0];
       const cardDisplay = formatPaymentMethodDisplay(defaultCard);
-      const notification = createNotification({
-        title: "💳 检测到已绑定的支付方式",
-        theme: "green",
-        details: [
-          ["支付方式", `${cardDisplay} ✓`],
-          ["邮箱", `${env.CLINK_USER_EMAIL || "N/A"} ✓`],
-          ["绑定状态", "已绑定 ✓"],
-        ],
-        paragraphs: ["已有有效支付方式，无需重新绑卡。继续检测风控规则…"],
+      const notification = createMessageRequest({
+        messageKey: 'payment.method.bound_detected',
+        vars: {
+          cardDisplay,
+          email: env.CLINK_USER_EMAIL || 'N/A',
+        },
       });
       const riskNotification = buildRiskRulesNotification(bindingUrl);
       let fallbackReason = 'missing_notify_destination';
       let statusNotificationSent = false;
       if (notifyDestination) {
         try {
-          sendNotificationDirect(notifyDestination, { notification });
+          sendNotificationDirect(notifyDestination, notification);
           statusNotificationSent = true;
-          sendNotificationDirect(notifyDestination, { notification: riskNotification });
+          sendNotificationDirect(notifyDestination, riskNotification);
           return `[SYSTEM DIRECTIVE] DIRECT_SEND: The payment-method status notification and risk-rules notification have been sent. Do NOT send another card.
 
 Current Payment Methods: ${JSON.stringify(methods)}
@@ -1248,7 +1266,7 @@ Extracted Binding Token for future use: ${bindingToken}`;
       if (statusNotificationSent) {
         await logNotificationFallback('get_binding_link/bound_risk_followup', {
           cache,
-          notification: riskNotification,
+          message: riskNotification,
           reason: 'direct_send_failed_after_status_notification',
         });
         return formatNotificationInstruction({
@@ -1264,7 +1282,7 @@ Extracted Binding Token for future use: ${bindingToken}`;
         });
       }
 
-      await logNotificationFallback('get_binding_link/bound', { cache, notification, reason: fallbackReason });
+      await logNotificationFallback('get_binding_link/bound', { cache, message: notification, reason: fallbackReason });
       return `💳 检测到已绑定的支付方式，并附带风控规则入口。
 ${formatNotificationInstruction({
   summary: 'Payment methods found.',
@@ -1293,7 +1311,7 @@ async function handle_get_risk_rules_link() {
 
     if (notifyDestination) {
       try {
-        sendNotificationDirect(notifyDestination, { notification });
+        sendNotificationDirect(notifyDestination, notification);
         return `[SYSTEM DIRECTIVE] DIRECT_SEND: Risk rules link generated.
 The notification has been sent. Do NOT send another card.`;
       } catch (err) {
@@ -1302,7 +1320,7 @@ The notification has been sent. Do NOT send another card.`;
       }
     }
 
-    await logNotificationFallback('get_risk_rules_link', { cache, notification, reason: fallbackReason });
+    await logNotificationFallback('get_risk_rules_link', { cache, message: notification, reason: fallbackReason });
     return formatNotificationInstruction({
       summary: 'Risk rules link generated.',
       notifications: notification,
@@ -1320,12 +1338,12 @@ async function handle_get_payment_method_setup_link() {
   try {
     const { bindingUrl, env } = await fetchBindingData();
     const setupUrl = buildRedirectUrl(bindingUrl, "payment-method-setup");
-    const notification = createNotification({
-      title: "💳 添加支付方式",
-      theme: "blue",
-      details: [["Clink 账户", env.CLINK_USER_EMAIL || "N/A"]],
-      paragraphs: ["绑定支付方式后，Clink 将代您自动完成 Token 充值。"],
-      actions: [{ label: "前往添加支付方式", url: setupUrl }],
+    const notification = createMessageRequest({
+      messageKey: 'payment.method.setup_link',
+      vars: {
+        email: env.CLINK_USER_EMAIL || 'N/A',
+        setupUrl,
+      },
     });
     const cache = await readPaymentMethodsCache() || {};
     const notifyDestination = getNotifyDestination(cache);
@@ -1333,7 +1351,7 @@ async function handle_get_payment_method_setup_link() {
 
     if (notifyDestination) {
       try {
-        sendNotificationDirect(notifyDestination, { notification });
+        sendNotificationDirect(notifyDestination, notification);
         return `[SYSTEM DIRECTIVE] DIRECT_SEND: Payment method setup link generated.
 The notification has been sent. Do NOT send another card.`;
       } catch (err) {
@@ -1342,7 +1360,7 @@ The notification has been sent. Do NOT send another card.`;
       }
     }
 
-    await logNotificationFallback('get_payment_method_setup_link', { cache, notification, reason: fallbackReason });
+    await logNotificationFallback('get_payment_method_setup_link', { cache, message: notification, reason: fallbackReason });
     return formatNotificationInstruction({
       summary: 'Payment method setup link generated.',
       notifications: notification,
@@ -1361,15 +1379,13 @@ async function handle_get_payment_method_modify_link() {
     const { bindingUrl, methods } = await fetchBindingData();
     const modifyUrl = buildRedirectUrl(bindingUrl, "payment-method-modify");
     const defaultCard = methods.find(m => m.isDefault);
-    const notification = createNotification({
-      title: "⚙️ 管理支付方式",
-      theme: "blue",
-      details: [
-        ["当前支付方式", defaultCard ? formatPaymentMethodDisplay(defaultCard) : "未设置"],
-        ["已绑定数量", `${methods.length} 种`],
-      ],
-      paragraphs: ["查看已绑定的支付方式，切换默认卡，或添加新的支付方式。"],
-      actions: [{ label: "前往管理支付方式", url: modifyUrl }],
+    const notification = createMessageRequest({
+      messageKey: 'payment.method.manage_link',
+      vars: {
+        defaultCardDisplay: defaultCard ? formatPaymentMethodDisplay(defaultCard) : '未设置',
+        methodCount: methods.length,
+        manageUrl: modifyUrl,
+      },
     });
     const cache = await readPaymentMethodsCache() || {};
     const notifyDestination = getNotifyDestination(cache);
@@ -1377,7 +1393,7 @@ async function handle_get_payment_method_modify_link() {
 
     if (notifyDestination) {
       try {
-        sendNotificationDirect(notifyDestination, { notification });
+        sendNotificationDirect(notifyDestination, notification);
         return `[SYSTEM DIRECTIVE] DIRECT_SEND: Payment method management link generated.
 The notification has been sent. Do NOT send another card.
 
@@ -1388,7 +1404,7 @@ Current Payment Methods: ${JSON.stringify(methods)}`;
       }
     }
 
-    await logNotificationFallback('get_payment_method_modify_link', { cache, notification, reason: fallbackReason });
+    await logNotificationFallback('get_payment_method_modify_link', { cache, message: notification, reason: fallbackReason });
     return formatNotificationInstruction({
       summary: 'Payment method management link generated.',
       notifications: notification,
@@ -1428,18 +1444,17 @@ async function handle_get_payment_method_detail(args) {
     });
     return `${formatNotificationInstruction({
       summary: 'Payment method detail retrieved.',
-      notifications: createNotification({
-        title: '💳 检测到已绑定的支付方式',
-        theme: 'green',
-        details: [
-          ['Card', formatPaymentMethodDisplay({
+      notifications: createMessageRequest({
+        messageKey: 'payment.method.detail',
+        vars: {
+          cardDisplay: formatPaymentMethodDisplay({
             paymentMethodType: data.paymentMethodType || data.paymentInstrumentType,
             cardBrand: data.cardBrand || data.cardScheme,
             cardLast4: data.cardLast4 || data.cardLastFour,
             walletAccountTag: data.walletAccountTag || data.wallet?.accountTag,
-          })],
-          ['Billing Region', data.billingAddressJson?.country || 'N/A'],
-        ],
+          }),
+          billingRegion: data.billingAddressJson?.country || 'N/A',
+        },
       }),
       followUp: [`Raw Data: ${JSON.stringify(data)}`],
     })}`;
@@ -1488,12 +1503,7 @@ async function handle_set_default_payment_method(args) {
     await logRequest('set_default_payment_method', requestPayload, data);
     return `${formatNotificationInstruction({
       summary: 'Payment method set as default successfully.',
-      notifications: createNotification({
-        title: '✅ 支付方式已更新',
-        theme: 'green',
-        details: [['Status', '已更新 ✓']],
-        paragraphs: ['新的支付方式将用于后续自动充值。'],
-      }),
+      notifications: createMessageRequest({ messageKey: 'payment.method.default_updated' }),
       followUp: [
         'After sending the notification, you may add a brief natural-language reply if helpful, but do not repeat the notification contents.',
         `Raw Data: ${data}`,
@@ -1661,18 +1671,15 @@ Call get_payment_method_setup_link immediately to prompt the user to bind a card
       const merchantName = psi.merchantName || args.merchant_id || "商户";
       return formatNotificationInstruction({
         summary: 'Payment requires 3DS verification. Pause the current task until the user completes verification.',
-        notifications: createNotification({
-          title: "🔐 充值触发 3DS 验证",
-          theme: "orange",
-          details: [
-            ["充值金额", amountDisplay],
-            ["商户", merchantName],
-            ["银行", `${cardDisplay} 发卡行`],
-            ["3DS 状态", "等待验证"],
-            ["订单号", orderId || "N/A"],
-          ],
-          paragraphs: ["银行要求对此次充值进行二次身份确认（3DS），任务已暂停等待您完成验证。"],
-          actions: redirectUrl ? [{ label: "前往完成 3DS 验证", url: redirectUrl }] : [],
+        notifications: createMessageRequest({
+          messageKey: 'payment.3ds_required',
+          vars: {
+            amountDisplay,
+            merchantName,
+            cardDisplay,
+            orderId,
+            redirectUrl,
+          },
         }),
         followUp: [
           'After sending the notification, you may add a brief natural-language reply if helpful, but do not repeat the notification contents.',
@@ -1695,7 +1702,7 @@ Call get_payment_method_setup_link immediately to prompt the user to bind a card
           const latestState = getOrderCardState(latestCache, orderId, 1, sessionId);
           const latestNotifyDestination = getNotifyDestination(latestCache) || notifyDestination || requestNotifyDestination || null;
           if (!latestState?.paymentSuccessCardSent) {
-            sendNotificationDirect(latestNotifyDestination, { notification: successNotification });
+            sendNotificationDirect(latestNotifyDestination, successNotification);
             await updateOrderCardState(orderId, 1, sessionId, {
               paymentSuccessCardSent: true,
               paymentSuccessCardSentAt: new Date().toISOString(),
@@ -1815,7 +1822,7 @@ Wait for the later async webhook to continue the merchant confirmation and origi
           if (latestState?.paymentFailureCardSent) {
             return 'already_sent';
           }
-          sendNotificationDirect(latestNotifyDestination, { notification: failNotification });
+          sendNotificationDirect(latestNotifyDestination, failNotification);
           await updateOrderCardState(orderId, status, sessionId, {
             paymentFailureCardSent: true,
             paymentFailureCardSentAt: new Date().toISOString(),
@@ -1859,16 +1866,11 @@ The merchant-side recharge confirmation and original-task resume must be driven 
     if (code === 90101203 || err.message.includes("CUSTOMER_EMAIL_NOT_FOUND")) {
       return formatNotificationInstruction({
         summary: 'Payment blocked: customer email not found.',
-        notifications: createNotification({
-          title: "🚫 充值被拦截：邮箱未设置",
-          theme: "red",
-          details: [
-            ["Clink 账户", env.CLINK_USER_EMAIL || "N/A"],
-            ["验证结果", "邮箱未找到"],
-            ["拦截原因", "Clink 账户邮箱不存在，无法完成身份校验"],
-          ],
-          paragraphs: ["请确认 Clink 账户邮箱设置正确后重新发起充值。"],
-          actions: [{ label: "联系支持" }],
+        notifications: createMessageRequest({
+          messageKey: 'payment.blocked.customer_email_missing',
+          vars: {
+            email: env.CLINK_USER_EMAIL || 'N/A',
+          },
         }),
         followUp: [
           'After sending the notification, you may add a brief natural-language reply if helpful, but do not repeat the notification contents.',
@@ -1879,16 +1881,11 @@ The merchant-side recharge confirmation and original-task resume must be driven 
     if (err.message.includes("CUSTOMER_VERIFY_FAILED") || (err.message.includes("邮箱") && err.message.includes("验证"))) {
       return formatNotificationInstruction({
         summary: 'Payment blocked: email verification failed (email mismatch).',
-        notifications: createNotification({
-          title: "🚫 充值被拦截：邮箱不一致",
-          theme: "red",
-          details: [
-            ["Clink 绑定邮箱", env.CLINK_USER_EMAIL || "N/A"],
-            ["验证结果", "不一致"],
-            ["拦截原因", "邮箱不匹配，存在账户归属风险"],
-          ],
-          paragraphs: ["为保障资金安全，充值账户邮箱必须与商户账户邮箱完全一致。请前往商户控制台确认账户邮箱后重新发起充值。"],
-          actions: [{ label: "联系支持" }],
+        notifications: createMessageRequest({
+          messageKey: 'payment.blocked.email_mismatch',
+          vars: {
+            email: env.CLINK_USER_EMAIL || 'N/A',
+          },
         }),
         followUp: [
           'After sending the notification, you may add a brief natural-language reply if helpful, but do not repeat the notification contents.',
@@ -1899,15 +1896,11 @@ The merchant-side recharge confirmation and original-task resume must be driven 
     if (code === 90101216 || err.message.includes("MERCHANT_NOT_FOUND")) {
       return formatNotificationInstruction({
         summary: 'Payment failed: merchant not found.',
-        notifications: createNotification({
-          title: "❌ 充值失败：商户不存在",
-          theme: "red",
-          details: [
-            ["商户 ID", args.merchant_id],
-            ["失败原因", "商户不存在"],
-          ],
-          paragraphs: ["请检查商户 ID 是否正确。如果持续出现此问题，请联系 Clink 支持。"],
-          actions: [{ label: "联系支持" }],
+        notifications: createMessageRequest({
+          messageKey: 'payment.failed.merchant_not_found',
+          vars: {
+            merchantId: args.merchant_id,
+          },
         }),
         followUp: [
           'After sending the notification, you may add a brief natural-language reply if helpful, but do not repeat the notification contents.',
@@ -1918,15 +1911,11 @@ The merchant-side recharge confirmation and original-task resume must be driven 
     if (code === 90101212 || err.message.includes("ORDER_HAS_ONE_IN_PROCESSING") || err.message.includes("处理中")) {
       return formatNotificationInstruction({
         summary: 'Payment blocked: another order is still processing.',
-        notifications: createNotification({
-          title: "⏳ 充值请求被拦截：订单处理中",
-          theme: "orange",
-          details: [
-            ["充值金额", amt],
-            ["拦截原因", "已有订单处理中"],
-            ["状态", "⏸ 等待上一笔完成"],
-          ],
-          paragraphs: ["当前有一笔充值订单正在处理中，请等待完成后再发起新的充值请求。"],
+        notifications: createMessageRequest({
+          messageKey: 'payment.blocked.order_processing',
+          vars: {
+            amountDisplay: amt,
+          },
         }),
         followUp: [
           'After sending the notification, you may add a brief natural-language reply if helpful, but do not repeat the notification contents.',
@@ -1938,14 +1927,11 @@ The merchant-side recharge confirmation and original-task resume must be driven 
     if (code === 90101206 || err.message.includes("ORDER_AMOUNT") || err.message.includes("CURRENCY_INCORRECT") || err.message.includes("金额")) {
       return formatNotificationInstruction({
         summary: 'Payment failed: invalid amount or currency.',
-        notifications: createNotification({
-          title: "❌ 充值失败：金额或币种错误",
-          theme: "red",
-          details: [
-            ["请求金额", amt],
-            ["失败原因", "金额或币种不正确"],
-          ],
-          paragraphs: ["请检查充值金额和币种是否正确后重试。"],
+        notifications: createMessageRequest({
+          messageKey: 'payment.failed.invalid_amount_or_currency',
+          vars: {
+            amountDisplay: amt,
+          },
         }),
         followUp: [
           'After sending the notification, you may add a brief natural-language reply if helpful, but do not repeat the notification contents.',
@@ -1956,14 +1942,11 @@ The merchant-side recharge confirmation and original-task resume must be driven 
     if (code === 90101219 || code === 90101220 || err.message.includes("SESSION_NOT_FOUND") || err.message.includes("SESSION_EXPIRED")) {
       return formatNotificationInstruction({
         summary: 'Payment failed: charge session expired or not found.',
-        notifications: createNotification({
-          title: "⏳ 充值会话已过期",
-          theme: "orange",
-          details: [
-            ["充值金额", amt],
-            ["失败原因", "充值会话已过期或不存在"],
-          ],
-          paragraphs: ["请重新发起充值请求。"],
+        notifications: createMessageRequest({
+          messageKey: 'payment.failed.session_expired',
+          vars: {
+            amountDisplay: amt,
+          },
         }),
         followUp: ['You should automatically retry by creating a new charge request.'],
       });
@@ -1972,14 +1955,11 @@ The merchant-side recharge confirmation and original-task resume must be driven 
     if (code === 90101221 || err.message.includes("SESSION_MERCHANT_MISMATCH")) {
       return formatNotificationInstruction({
         summary: 'Payment failed: session merchant mismatch.',
-        notifications: createNotification({
-          title: "❌ 充值失败：商户信息不匹配",
-          theme: "red",
-          details: [
-            ["商户 ID", args.merchant_id],
-            ["失败原因", "商户信息与充值会话不一致"],
-          ],
-          paragraphs: ["充值请求中的商户与原始会话中记录的商户不一致，请重新发起充值。"],
+        notifications: createMessageRequest({
+          messageKey: 'payment.failed.session_merchant_mismatch',
+          vars: {
+            merchantId: args.merchant_id,
+          },
         }),
         followUp: [
           'After sending the notification, you may add a brief natural-language reply if helpful, but do not repeat the notification contents.',
@@ -1990,15 +1970,9 @@ The merchant-side recharge confirmation and original-task resume must be driven 
     if (code === 401 || code === 80102221 || code === 80102222 || code === 80102223) {
       return formatNotificationInstruction({
         summary: 'Payment failed: authentication error.',
-        notifications: createNotification({
-          title: "🔑 充值失败：认证错误",
-          theme: "red",
-          details: [
-            ["失败原因", "API Key 无效或已过期"],
-            ["错误码", code],
-          ],
-          paragraphs: ["Clink 认证失败，可能是 API Key 已过期或无效。请尝试重新初始化钱包（initialize_wallet）。"],
-          actions: [{ label: "重新初始化" }],
+        notifications: createMessageRequest({
+          messageKey: 'payment.failed.auth',
+          vars: { code },
         }),
         followUp: [
           'After sending the notification, you may add a brief natural-language reply if helpful, but do not repeat the notification contents.',
@@ -2009,14 +1983,9 @@ The merchant-side recharge confirmation and original-task resume must be driven 
     if (code === 80102212 || code === 80102213 || code === 80102203) {
       return formatNotificationInstruction({
         summary: 'Payment failed: timestamp validation error.',
-        notifications: createNotification({
-          title: "❌ 充值失败：请求时间异常",
-          theme: "red",
-          details: [
-            ["失败原因", "请求时间戳无效或已过期"],
-            ["错误码", code],
-          ],
-          paragraphs: ["请检查系统时间是否正确后重试。"],
+        notifications: createMessageRequest({
+          messageKey: 'payment.failed.timestamp',
+          vars: { code },
         }),
         followUp: ['This is likely a clock sync issue. Retry immediately with a fresh timestamp.'],
       });
@@ -2027,21 +1996,13 @@ The merchant-side recharge confirmation and original-task resume must be driven 
       const ruleDetail = err.raw?.data?.ruleDetail || err.raw?.data?.rule_detail || err.message;
       return formatNotificationInstruction({
         summary: 'Payment blocked: risk rule triggered.',
-        notifications: createNotification({
-          title: "🛡️ 风控规则触发：充值被拦截",
-          theme: "orange",
-          details: [
-            ["充值金额", amt],
-            ["触发规则", ruleName],
-            ["规则详情", ruleDetail],
-            ["任务状态", "⏸ 已暂停"],
-          ],
-          paragraphs: ["当前充值请求触发了风控安全规则，充值已暂停。"],
-          actions: [
-            { label: "继续充值" },
-            { label: "修改风控规则" },
-            { label: "暂停任务" },
-          ],
+        notifications: createMessageRequest({
+          messageKey: 'payment.blocked.risk_rule',
+          vars: {
+            amountDisplay: amt,
+            ruleName,
+            ruleDetail,
+          },
         }),
         followUp: [
           'After sending the notification, you may add a brief natural-language reply if helpful, but do not repeat the notification contents.',
@@ -2054,28 +2015,13 @@ The merchant-side recharge confirmation and original-task resume must be driven 
       return formatNotificationInstruction({
         summary: 'Payment failed: card declined.',
         notifications: [
-          createNotification({
-            title: "❌ 充值失败：银行拒绝",
-            theme: "red",
-            details: [
-              ["充值金额", amt],
-              ["失败原因", "CARD_DECLINED"],
-              ["银行卡", "当前绑定卡"],
-              ["任务状态", "⏸ 已暂停"],
-            ],
+          createMessageRequest({
+            messageKey: 'payment.failed.card_declined',
+            vars: { amountDisplay: amt },
           }),
-          createNotification({
-            title: "⚠️ 请更换支付方式以继续充值",
-            theme: "orange",
-            details: [
-              ["建议操作", "更换银行卡或其他支付方式"],
-              ["备注", "更换后如需继续充值请告知"],
-            ],
-            paragraphs: ["当前卡片被银行拒绝，可能原因：卡片余额不足、已过期或账单地址不符。"],
-            actions: [
-              { label: "前往更换支付方式" },
-              { label: "暂不处理" },
-            ],
+          createMessageRequest({
+            messageKey: 'payment.failed.change_payment_method',
+            vars: {},
           }),
         ],
         followUp: [
@@ -2088,15 +2034,9 @@ The merchant-side recharge confirmation and original-task resume must be driven 
     if (code === 90101201) {
       return formatNotificationInstruction({
         summary: 'Payment failed: remote service error.',
-        notifications: createNotification({
-          title: "❌ 充值失败：服务暂时不可用",
-          theme: "red",
-          details: [
-            ["充值金额", amt],
-            ["失败原因", "远程服务调用失败"],
-          ],
-          paragraphs: ["Clink 支付服务暂时不可用，请稍后重试。如果持续出现此问题，请联系支持。"],
-          actions: [{ label: "联系支持" }],
+        notifications: createMessageRequest({
+          messageKey: 'payment.failed.remote_service',
+          vars: { amountDisplay: amt },
         }),
         followUp: [
           'After sending the notification, you may add a brief natural-language reply if helpful, but do not repeat the notification contents.',
@@ -2106,16 +2046,13 @@ The merchant-side recharge confirmation and original-task resume must be driven 
 
     return formatNotificationInstruction({
       summary: 'Payment failed: unexpected error.',
-      notifications: createNotification({
-        title: "❌ 充值失败：处理异常",
-        theme: "red",
-        details: [
-          ["充值金额", amt],
-          ["失败原因", err.message],
-          ["错误码", code || "N/A"],
-          ["状态", "失败"],
-        ],
-        paragraphs: ["充值过程中出现异常，请稍后重试。如问题持续，请联系支付服务支持排查。"],
+      notifications: createMessageRequest({
+        messageKey: 'payment.failed.unexpected',
+        vars: {
+          amountDisplay: amt,
+          reason: err.message,
+          code: code || 'N/A',
+        },
       }),
       followUp: [
         'After sending the notification, you may add a brief natural-language reply if helpful, but do not repeat the notification contents.',
@@ -2180,19 +2117,35 @@ async function handle_clink_refund(args) {
       ? "等待审核中"
       : refundStatus;
 
+    const notification = createMessageRequest({
+      messageKey: 'refund.application_submitted',
+      vars: {
+        orderId: responseOrderId,
+        refundId,
+        refundAmountDisplay,
+        statusDisplay,
+      },
+    });
+    const cache = await readPaymentMethodsCache() || {};
+    const notifyDestination = getNotifyDestination(cache);
+    let fallbackReason = 'missing_notify_destination';
+
+    if (notifyDestination) {
+      try {
+        sendNotificationDirect(notifyDestination, notification);
+        return `[SYSTEM DIRECTIVE] DIRECT_SEND: Refund application submitted successfully.
+The notification has been sent. Do NOT send another card.
+Wait for the later refund webhook to deliver the final success/failure notification.`;
+      } catch (sendErr) {
+        fallbackReason = 'direct_send_failed';
+        await logError('clink_refund/direct_send', sendErr);
+      }
+    }
+
+    await logNotificationFallback('clink_refund', { cache, message: notification, reason: fallbackReason });
     return formatNotificationInstruction({
       summary: 'Refund application submitted successfully.',
-      notifications: createNotification({
-        title: "⏳ 退款申请已提交",
-        theme: "blue",
-        details: [
-          ["原订单号", responseOrderId],
-          ["退款单号", refundId],
-          ["退款金额", refundAmountDisplay],
-          ["退款状态", statusDisplay],
-        ],
-        paragraphs: ["退款申请已提交至 Clink，正在等待处理。最终结果将通过后续通知自动推送。"],
-      }),
+      notifications: notification,
       followUp: [
         'After sending the notification, you may add a brief natural-language reply if helpful, but do not repeat the notification contents.',
         'Do NOT restate the refund details verbatim in natural language.',
@@ -2212,15 +2165,14 @@ async function handle_clink_refund(args) {
 
     return formatNotificationInstruction({
       summary: 'Refund application failed.',
-      notifications: createNotification({
-        title: "❌ 退款申请失败",
-        theme: "red",
-        details: [
-          ["原订单号", orderId],
-          ["失败原因", failureReason],
-          ["错误码", code || "N/A"],
-        ],
-        paragraphs: [failureDescription],
+      notifications: createMessageRequest({
+        messageKey: 'refund.application_failed',
+        vars: {
+          orderId,
+          reason: failureReason,
+          code: code || 'N/A',
+          description: failureDescription,
+        },
       }),
       followUp: [
         'After sending the notification, you may add a brief natural-language reply if helpful, but do not repeat the notification contents.',
@@ -2299,22 +2251,17 @@ async function handle_install_system_hooks(args) {
     }
   }
 
-  const statusNotification = createNotification({
-    title: '✅ Clink Payment Skill 安装成功',
-    theme: 'green',
-    details: [
-      ['Webhook 路由', '已就绪 ✓'],
-      ['网关重启', '后台处理中 ✓'],
-    ],
-    paragraphs: [
-      `请直接回复您的邮箱地址完成钱包初始化。${userEmail ? `\n\n如需继续使用之前的邮箱，直接回复：\`${userEmail}\`` : ''}\n\n若网关仍在重启中，稍候几秒后重试即可。`,
-    ],
+  const statusNotification = createMessageRequest({
+    messageKey: 'install.success',
+    vars: {
+      userEmail,
+    },
   });
 
   let statusNotificationSent = false;
   let statusNotificationError = null;
   try {
-    sendNotificationDirect(notifyDestination, { notification: statusNotification });
+    sendNotificationDirect(notifyDestination, statusNotification);
     statusNotificationSent = true;
   } catch (err) {
     statusNotificationError = err;
@@ -2457,14 +2404,8 @@ async function handle_uninstall_system_hooks(args) {
   }
 
   const notifyScriptPath = path.join(OPENCLAW_DIR, 'cache', 'clink_uninstall_notify.mjs');
-  const uninstallCompleteMessage = renderNotificationMarkdown(
-    createNotification({
-      title: '🗑️ 卸载已生效',
-      theme: 'green',
-      paragraphs: [
-        '网关已重启完毕，Clink Payment 支付组件及全部配置已彻底清除。若需再次使用，请重新下发安装指令。',
-      ],
-    }),
+  const uninstallCompleteMessage = renderMessageMarkdown(
+    createMessageRequest({ messageKey: 'uninstall.completed' }),
   );
   const notifyJsCode = `
 import { execFileSync } from 'child_process';
@@ -2494,11 +2435,9 @@ try {
 
 ${formatNotificationInstruction({
   summary: 'Clink Payment Skill uninstall is in progress.',
-  notifications: createNotification({
-    title: '🗑️ Clink Payment Skill 卸载执行中',
-    theme: 'orange',
-    details: [...results.map((item) => ['执行结果', item]), ['网关状态', '执行完成后自动重启']],
-    paragraphs: ['正在卸载 Clink Payment 支付组件及相关配置。卸载完成后将自动重启 gateway 生效。'],
+  notifications: createMessageRequest({
+    messageKey: 'uninstall.in_progress',
+    vars: { results },
   }),
   followUp: [
     'After sending the notification, you may add a brief natural-language reply if helpful, but do not repeat the notification contents.',
@@ -2526,7 +2465,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           name: { type: "string" },
           channel: { type: "string", description: "Optional notify channel. Feishu supports native cards; other channels receive markdown/text notifications." },
           target_id: { type: "string", description: "Optional notify target ID used for the selected channel." },
-          target_type: { type: "string", description: "Optional notify target type. For Feishu use chat_id or open_id." }
+          target_type: { type: "string", description: "Optional notify target type. For Feishu use chat_id or open_id." },
+          locale: { type: "string", description: "Optional BCP 47 locale hint for message auto-localization, e.g. zh-CN or en-US." }
         },
         required: ["email"]
       }
@@ -2612,7 +2552,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           paymentMethodType: { type: "string" },
           channel: { type: "string", description: "Optional notify channel. If provided with target_id and target_type, it refreshes the cached notify destination." },
           target_id: { type: "string", description: "Optional notify target ID used for direct delivery." },
-          target_type: { type: "string", description: "Optional notify target type. For Feishu use chat_id or open_id." }
+          target_type: { type: "string", description: "Optional notify target type. For Feishu use chat_id or open_id." },
+          locale: { type: "string", description: "Optional BCP 47 locale hint for message auto-localization, e.g. zh-CN or en-US." }
         },
         required: ["merchant_integration"]
       }
@@ -2626,7 +2567,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           orderId: { type: "string", description: "Clink order ID to refund in full" },
           channel: { type: "string", description: "Optional notify channel. If provided with target_id and target_type, it refreshes the cached notify destination." },
           target_id: { type: "string", description: "Optional notify target ID used for direct delivery." },
-          target_type: { type: "string", description: "Optional notify target type. For Feishu use chat_id or open_id." }
+          target_type: { type: "string", description: "Optional notify target type. For Feishu use chat_id or open_id." },
+          locale: { type: "string", description: "Optional BCP 47 locale hint for message auto-localization, e.g. zh-CN or en-US." }
         },
         required: ["orderId"]
       }
@@ -2639,7 +2581,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           channel: { type: "string", description: "Notify channel. Feishu supports native cards; other channels receive markdown/text notifications." },
           target_id: { type: "string", description: "Notify target ID used after gateway restart." },
-          target_type: { type: "string", description: "Notify target type. For Feishu use chat_id or open_id." }
+          target_type: { type: "string", description: "Notify target type. For Feishu use chat_id or open_id." },
+          locale: { type: "string", description: "Optional BCP 47 locale hint for message auto-localization, e.g. zh-CN or en-US." }
         },
         required: []
       }
@@ -2652,7 +2595,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           channel: { type: "string", description: "Optional notify channel. Feishu supports native cards; other channels receive markdown/text notifications." },
           target_id: { type: "string", description: "Optional notify target ID used after uninstall." },
-          target_type: { type: "string", description: "Optional notify target type. For Feishu use chat_id or open_id." }
+          target_type: { type: "string", description: "Optional notify target type. For Feishu use chat_id or open_id." },
+          locale: { type: "string", description: "Optional BCP 47 locale hint for message auto-localization, e.g. zh-CN or en-US." }
         },
         required: []
       }

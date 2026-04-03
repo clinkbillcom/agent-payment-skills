@@ -3,14 +3,22 @@ import { execFileSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import {
-  renderNotificationFeishuCard,
-  renderNotificationMarkdown,
-  renderNotificationPlainText,
+  compileMessage,
+  normalizeDeliveryMessageRequest,
+  renderMessageFeishuCard,
+  renderMessageMarkdown,
+  renderMessagePlainText,
+  resolvePreferredLocale,
 } from '../notification-utils.js';
 
 const SCRIPT_DIR = path.dirname(new URL(import.meta.url).pathname);
 const FEISHU_CARD_SENDER = path.join(SCRIPT_DIR, 'send-feishu-card.mjs');
 const LOG_PATH = path.join(SCRIPT_DIR, '..', 'error.log');
+
+const CHANNEL_CAPABILITIES = Object.freeze({
+  feishu: { rich: true, text_mode: 'plain' },
+  telegram: { rich: false, text_mode: 'markdown' },
+});
 
 function logScriptError(context, error) {
   const parts = [
@@ -32,164 +40,24 @@ function logScriptError(context, error) {
 
 function parseArgs(argv) {
   let payloadJson = '';
-
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    if (arg === '--payload') {
-      const value = argv[i + 1];
-      if (!value || value.startsWith('--')) {
-        throw new Error('--payload requires a JSON value');
-      }
-      payloadJson = value;
-      i++;
-      continue;
+  for (let index = 0; index < argv.length; index++) {
+    const arg = argv[index];
+    if (arg !== '--payload') continue;
+    const value = argv[index + 1];
+    if (!value || value.startsWith('--')) {
+      throw new Error('--payload requires a JSON value');
     }
+    payloadJson = value;
+    index += 1;
   }
-
   if (!payloadJson) {
     throw new Error('Missing --payload');
   }
-
   const payload = JSON.parse(payloadJson);
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     throw new Error('Payload must be a JSON object');
   }
   return payload;
-}
-
-function sanitizeInlineMarkup(text) {
-  return String(text || '')
-    .replace(/<font\b[^>]*>/gi, '')
-    .replace(/<\/font>/gi, '')
-    .replace(/<at\b[^>]*>(.*?)<\/at>/gi, '$1')
-    .replace(/<a\b[^>]*href="([^"]+)"[^>]*>(.*?)<\/a>/gi, '[$2]($1)')
-    .trim();
-}
-
-function getElementText(element) {
-  if (!element || typeof element !== 'object') {
-    return '';
-  }
-
-  if (typeof element.content === 'string') {
-    return sanitizeInlineMarkup(element.content);
-  }
-
-  if (element.text && typeof element.text === 'object' && typeof element.text.content === 'string') {
-    return sanitizeInlineMarkup(element.text.content);
-  }
-
-  return '';
-}
-
-function getActionUrl(action) {
-  if (!action || typeof action !== 'object') {
-    return '';
-  }
-  if (typeof action.url === 'string' && action.url.trim()) {
-    return action.url.trim();
-  }
-  const multiUrl = action.multi_url;
-  if (!multiUrl || typeof multiUrl !== 'object') {
-    return '';
-  }
-  return (
-    multiUrl.url ||
-    multiUrl.pc_url ||
-    multiUrl.android_url ||
-    multiUrl.ios_url ||
-    ''
-  ).trim();
-}
-
-function renderElement(element) {
-  if (!element || typeof element !== 'object') {
-    return '';
-  }
-
-  if (element.tag === 'hr') {
-    return '---';
-  }
-
-  if (element.tag === 'action' && Array.isArray(element.actions)) {
-    const lines = element.actions
-      .map((action) => {
-        const label = getElementText(action.text || action);
-        const url = getActionUrl(action);
-        if (url) {
-          return `- [${label || 'Open'}](${url})`;
-        }
-        return label ? `- ${label}` : '';
-      })
-      .filter(Boolean);
-    return lines.join('\n');
-  }
-
-  if (element.tag === 'button') {
-    const label = getElementText(element.text || element);
-    const url = getActionUrl(element);
-    if (url) {
-      return `- [${label || 'Open'}](${url})`;
-    }
-    return label ? `- ${label}` : '';
-  }
-
-  if (element.tag === 'note' && Array.isArray(element.elements)) {
-    const parts = element.elements.map(renderElement).filter(Boolean);
-    return parts.join('\n');
-  }
-
-  if (element.tag === 'column_set' && Array.isArray(element.columns)) {
-    const parts = element.columns
-      .map((column) => (Array.isArray(column.elements) ? column.elements.map(renderElement).filter(Boolean).join('\n') : ''))
-      .filter(Boolean);
-    return parts.join('\n');
-  }
-
-  return getElementText(element);
-}
-
-function renderCardToMarkdown(card) {
-  const sections = [];
-  const title = sanitizeInlineMarkup(card?.header?.title?.content || '');
-  if (title) {
-    sections.push(`**${title}**`);
-  }
-
-  const elements = Array.isArray(card?.elements)
-    ? card.elements
-    : Array.isArray(card?.body?.elements)
-      ? card.body.elements
-      : [];
-
-  for (const element of elements) {
-    const rendered = renderElement(element);
-    if (rendered) {
-      sections.push(rendered);
-    }
-  }
-
-  return sections.join('\n\n').trim();
-}
-
-function resolveNotification(payload) {
-  if (payload.notification && typeof payload.notification === 'object' && !Array.isArray(payload.notification)) {
-    return payload.notification;
-  }
-  return null;
-}
-
-function resolveText(payload, { plainText = false } = {}) {
-  const notification = resolveNotification(payload);
-  if (notification) {
-    return plainText
-      ? renderNotificationPlainText(notification)
-      : renderNotificationMarkdown(notification);
-  }
-  if (typeof payload.text === 'string' && payload.text.trim()) {
-    return payload.text.trim();
-  }
-  return renderCardToMarkdown(payload.card);
 }
 
 function normalizeTarget(payload) {
@@ -202,13 +70,38 @@ function normalizeTarget(payload) {
   const targetId = typeof payload?.target?.id === 'string' && payload.target.id.trim()
     ? payload.target.id.trim()
     : '';
+  const targetLocale = typeof payload?.target?.locale === 'string' && payload.target.locale.trim()
+    ? payload.target.locale.trim()
+    : '';
   if (!channel) throw new Error('channel is required');
   if (!targetType) throw new Error('target.type is required');
   if (!targetId) throw new Error('target.id is required');
-  return { channel, targetType, targetId };
+  return { channel, targetType, targetId, targetLocale };
 }
 
-function sendFeishuCard(payload) {
+function resolveCompiledMessage(payload) {
+  const { targetLocale } = normalizeTarget(payload);
+  const preferredLocale = resolvePreferredLocale(
+    payload.locale,
+    targetLocale,
+    payload.user_locale,
+    payload.language,
+  );
+  const request = normalizeDeliveryMessageRequest(payload, { preferredLocale });
+  return {
+    request,
+    compiled: compileMessage(request, { preferredLocale }),
+  };
+}
+
+function resolveText(compiled, channel) {
+  const capability = CHANNEL_CAPABILITIES[channel] || { rich: false, text_mode: 'markdown' };
+  return capability.text_mode === 'plain'
+    ? renderMessagePlainText(compiled)
+    : renderMessageMarkdown(compiled);
+}
+
+function sendFeishuCard(payload, compiled) {
   const { targetId, targetType } = normalizeTarget(payload);
   if (targetType !== 'chat_id' && targetType !== 'open_id') {
     throw new Error('Feishu target.type must be "chat_id" or "open_id"');
@@ -216,7 +109,7 @@ function sendFeishuCard(payload) {
   const targetFlag = targetType === 'open_id' ? '--open-id' : '--chat-id';
   execFileSync(
     process.execPath,
-    [FEISHU_CARD_SENDER, '--json', JSON.stringify(payload.card), targetFlag, targetId],
+    [FEISHU_CARD_SENDER, '--json', JSON.stringify(renderMessageFeishuCard(compiled)), targetFlag, targetId],
     {
       encoding: 'utf8',
       stdio: 'pipe',
@@ -225,22 +118,9 @@ function sendFeishuCard(payload) {
   );
 }
 
-function sendFeishuText(payload) {
-  const text = resolveText(payload, { plainText: true });
-  if (!text) {
-    throw new Error('No text content available for Feishu delivery');
-  }
-  sendViaOpenClawMessage({
-    ...payload,
-    notification: undefined,
-    card: undefined,
-    text,
-  });
-}
-
-function sendViaOpenClawMessage(payload) {
+function sendViaOpenClawMessage(payload, compiled) {
   const { channel, targetId, targetType } = normalizeTarget(payload);
-  const text = resolveText(payload);
+  const text = resolveText(compiled, channel);
   if (!text) {
     throw new Error('No text content available for delivery');
   }
@@ -264,35 +144,24 @@ function sendViaOpenClawMessage(payload) {
 
 async function main() {
   const payload = parseArgs(process.argv.slice(2));
-  const hasMedia = (
-    (typeof payload.mediaUrl === 'string' && payload.mediaUrl.trim()) ||
-    (Array.isArray(payload.mediaUrls) && payload.mediaUrls.some((entry) => typeof entry === 'string' && entry.trim()))
-  );
-  if (hasMedia) {
-    throw new Error('agent-payment-skills notifications do not support media delivery');
+  const { channel } = normalizeTarget(payload);
+  const { request, compiled } = resolveCompiledMessage(payload);
+  const deliveryPolicy = request.delivery_policy || { prefer_rich: true, allow_fallback: true };
+  const capability = CHANNEL_CAPABILITIES[channel] || { rich: false, text_mode: 'markdown' };
+
+  if (channel === 'feishu' && capability.rich && deliveryPolicy.prefer_rich) {
+    try {
+      sendFeishuCard(payload, compiled);
+      return;
+    } catch (error) {
+      logScriptError('scripts/send-message/feishu-rich', error);
+      if (!deliveryPolicy.allow_fallback) {
+        throw error;
+      }
+    }
   }
-  const channel = typeof payload.channel === 'string' ? payload.channel.trim().toLowerCase() : '';
-  const notification = resolveNotification(payload);
-  if (notification && channel === 'feishu') {
-    sendFeishuCard({
-      ...payload,
-      card: renderNotificationFeishuCard(notification),
-    });
-    return;
-  }
-  if (notification) {
-    sendViaOpenClawMessage(payload);
-    return;
-  }
-  if ((payload.card || payload.text) && channel === 'feishu' && payload.card) {
-    sendFeishuCard(payload);
-    return;
-  }
-  if (channel === 'feishu') {
-    sendFeishuText(payload);
-    return;
-  }
-  sendViaOpenClawMessage(payload);
+
+  sendViaOpenClawMessage(payload, compiled);
 }
 
 main().catch((error) => {
@@ -300,3 +169,4 @@ main().catch((error) => {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
 });
+

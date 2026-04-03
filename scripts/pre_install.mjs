@@ -25,7 +25,7 @@ import os from 'os';
 import crypto from 'crypto';
 import { execFileSync, spawn } from 'child_process';
 import { fileURLToPath } from 'url';
-import { createNotification } from '../notification-utils.js';
+import { createMessageRequest } from '../notification-utils.js';
 
 function resolveOpenClawHome() {
   const explicitHome = typeof process.env.OPENCLAW_HOME === 'string' ? process.env.OPENCLAW_HOME.trim() : '';
@@ -114,6 +114,7 @@ function parseNotifyDestination(argv) {
   let channel = '';
   let targetId = '';
   let targetType = '';
+  let locale = '';
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -136,6 +137,11 @@ function parseNotifyDestination(argv) {
       i++;
       continue;
     }
+    if (arg === '--locale') {
+      locale = value.trim();
+      i++;
+      continue;
+    }
   }
 
   if (!channel && !targetId && !targetType) {
@@ -150,23 +156,28 @@ function parseNotifyDestination(argv) {
   return {
     channel,
     target: { type: targetType, id: targetId },
+    ...(locale ? { locale } : {}),
   };
 }
 
 function buildNotificationPayload(notifyDestination, notification) {
   const payload = {
     channel: notifyDestination.channel,
-    target: notifyDestination.target,
+    target: {
+      ...notifyDestination.target,
+      ...(notifyDestination.locale ? { locale: notifyDestination.locale } : {}),
+    },
     deliver: true,
   };
-  if (notification?.notification && typeof notification.notification === 'object' && !Array.isArray(notification.notification)) {
-    payload.notification = JSON.parse(JSON.stringify(notification.notification));
+  const messageRequest = notification?.message_key ? notification : notification?.message;
+  if (!messageRequest?.message_key) {
+    throw new Error('message payload must include message_key');
   }
-  if (notification?.card) {
-    payload.card = notification.card;
-  }
-  if (typeof notification?.text === 'string' && notification.text.trim()) {
-    payload.text = notification.text.trim();
+  payload.message_key = String(messageRequest.message_key).trim();
+  payload.vars = JSON.parse(JSON.stringify(messageRequest.vars || {}));
+  payload.locale = typeof messageRequest.locale === 'string' ? messageRequest.locale : 'auto';
+  if (messageRequest.delivery_policy) {
+    payload.delivery_policy = JSON.parse(JSON.stringify(messageRequest.delivery_policy));
   }
   return payload;
 }
@@ -281,14 +292,9 @@ console.log('  ✅ Gateway restart scheduled');
 console.log('Step 5: Sending install notification...');
 try {
   const authPayload = buildNotificationPayload(notifyDestination, {
-    notification: createNotification({
-      title: '✅ Clink Payment Skill 安装成功',
-      theme: 'green',
-      details: [
-        ['Webhook 路由', '已就绪 ✓'],
-        ['网关重启', '后台处理中 ✓'],
-      ],
-      paragraphs: ['请直接回复您的邮箱地址完成钱包初始化。若网关仍在重启中，稍候几秒后重试即可。'],
+    message: createMessageRequest({
+      messageKey: 'install.success',
+      vars: {},
     }),
   });
   execFileSync(process.execPath, [MESSAGE_SENDER, '--payload', JSON.stringify(authPayload)], { stdio: 'inherit' });

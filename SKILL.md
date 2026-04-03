@@ -106,29 +106,34 @@ This skill provides any compatible AI agent with the ability to manage payments 
 This skill includes a unified notification sender:
 
 ```bash
-# Channel-neutral notification payload
-node {SKILL_DIR}/scripts/send-message.mjs --payload '{"channel":"feishu","target":{"type":"chat_id","id":"oc_xxx"},"notification":{"title":"Title","theme":"green","details":[["Key","Value"]],"paragraphs":["Description text"],"actions":[{"label":"Open","url":"https://example.com"}]}}'
+# Message-key payload for Feishu
+node {SKILL_DIR}/scripts/send-message.mjs --payload '{"channel":"feishu","target":{"type":"chat_id","id":"oc_xxx","locale":"zh-CN"},"message_key":"payment.method.setup_link","vars":{"email":"user@example.com","setupUrl":"https://example.com/setup"}}'
 
-# Equivalent markdown/text notification for another channel
-node {SKILL_DIR}/scripts/send-message.mjs --payload '{"channel":"telegram","target":{"type":"target_id","id":"12345"},"notification":{"title":"Title","theme":"green","details":[["Key","Value"]],"paragraphs":["Description text"],"actions":[{"label":"Open","url":"https://example.com"}]}}'
+# Same message delivered to another channel with locale auto-resolution
+node {SKILL_DIR}/scripts/send-message.mjs --payload '{"channel":"telegram","target":{"type":"target_id","id":"12345","locale":"en-US"},"message_key":"payment.method.setup_link","vars":{"email":"user@example.com","setupUrl":"https://example.com/setup"}}'
 ```
 
 Replace `{SKILL_DIR}` with the actual skill path (e.g. `~/.openclaw/workspace/skills/agent-payment-skills`).
 
-Preferred notification schema:
+Preferred message schema:
 ```json
 {
-  "title": "Title",
-  "theme": "green",
-  "details": [["Key", "Value"]],
-  "paragraphs": ["Description text"],
-  "actions": [{ "label": "Open", "url": "https://example.com" }]
+  "message_key": "payment.method.setup_link",
+  "locale": "auto",
+  "vars": {
+    "email": "user@example.com",
+    "setupUrl": "https://example.com/setup"
+  },
+  "delivery_policy": {
+    "prefer_rich": true,
+    "allow_fallback": true
+  }
 }
 ```
 
-The sender renders this neutral payload into a Feishu card for Feishu and Markdown/text for other channels.
+The sender resolves locale, compiles the message catalog entry into a neutral content model, then renders it into a Feishu card for Feishu and Markdown/text for other channels.
 
-For non-Feishu channels, `send-message.mjs` renders the card to markdown/text and delivers it through the gateway.
+For non-Feishu channels, `send-message.mjs` currently renders Markdown/text and delivers it through the gateway.
 
 ## Card Ownership Matrix (Hard Rule)
 
@@ -339,7 +344,8 @@ When the user asks to uninstall this skill, the agent MUST follow the same stric
 
 1. **Send Uninstall Authorization Card**:
    - Send exactly one uninstall authorization notification appropriate for the current channel.
-   - Feishu may use the existing uninstall card payload. Other channels should receive equivalent markdown/text: "⚠️ Uninstall will perform the following irreversible actions: remove the webhook interceptor, clear configuration, delete the skill directory, and restart the gateway.\n\nReply with \"Confirm uninstall\" to proceed."
+   - All channels should use the unified notification payload via `send-message.mjs`, for example: `{"message_key":"uninstall.in_progress","vars":{"results":["Webhook: pending removal","Configuration: pending removal","Skill directory: pending removal","Gateway restart: pending"]}}`
+   - If direct delivery is unavailable, send the equivalent markdown/text rendered from the same `message_key`; do not construct a legacy raw card payload.
    - Do NOT execute any destructive operations yet. After sending the notification, you may add a short natural-language reminder that uninstall is waiting for text confirmation.
 
 2. **Wait for Text Approval**:
