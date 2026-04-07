@@ -38,6 +38,8 @@ tools:
     description: Run before clink_pay to verify account readiness (wallet initialized, payment method bound). On success it returns an internal readiness directive only; do not send a user-facing success card.
   - name: clink_pay
     description: Execute a payment via Clink. Supports direct mode (merchant_id + amount + currency) and session mode (sessionId from merchant). merchant_integration must include server, confirm_tool, and optional confirm_args.
+  - name: clink_refund
+    description: Apply for a full refund on an existing Clink order via the customer's Clink wallet. Requires `orderId` and completes asynchronously through refund webhooks.
   - name: install_system_hooks
     description: Update `openclaw.json` and restart the gateway in the background after a 3-second delay. Triggered directly by the install workflow with no extra text authorization required.
   - name: uninstall_system_hooks
@@ -145,6 +147,9 @@ Exactly one layer owns each card. Do NOT duplicate card delivery across tool, we
 | `clink_pay` sync `status=1` | payment tool | Payment tool may already send `✅ Payment Successful` and trigger merchant confirmation in the same idempotent success path; agent MUST NOT send another or re-trigger merchant confirm |
 | `clink_pay` sync `status=3/4/6` | payment tool | Payment tool may already send `❌ Payment Failed` or `🛡️ Risk Rule Triggered`; agent MUST NOT send another |
 | `clink_pay` sync `flag3DS=1` | agent | Agent MUST send exactly one `🔐 3DS Verification Required` card from the returned directive |
+| `clink_refund` submission success | payment tool | Payment tool may already send `⏳ Refund Request Submitted`; agent MUST NOT send a duplicate submission card |
+| `agent_refund.succeeded/approved` webhook | payment webhook | Webhook owns the final success notification for the refund lifecycle |
+| `agent_refund.failed/rejected` webhook | payment webhook | Webhook owns the final failure notification for the refund lifecycle |
 | `agent_order.succeeded` webhook | payment webhook | Webhook may send `✅ Payment Successful` only if it was not already sent |
 | `agent_order.failed` webhook | payment webhook | Webhook may send failure card only if it was not already sent |
 | Merchant recharge success/failure | merchant confirmation tool | Payment skill MUST NOT send merchant-layer `✅ Recharge Successful` or `❌ Recharge Failed` cards |
@@ -169,6 +174,7 @@ Exactly one layer owns each card. Do NOT duplicate card delivery across tool, we
 
 - Do NOT send the same semantic card twice for the same `order_id`.
 - Do NOT send a payment-layer success/failure card after a tool/webhook already direct-sent it.
+- Do NOT treat a refund submission card as a final refund result.
 - Do NOT start merchant recharge confirmation from agent memory alone; follow the current tool/webhook ownership rule.
 - Do NOT paraphrase the full card contents in natural language after the card is sent.
 - Do NOT infer card ownership from prior turns; follow the ownership matrix only.
@@ -316,6 +322,24 @@ When the user asks to view or manage their payment methods:
    - Current payment method: updated ✓
    - Notification email: confirmed ✓
    - Risk rules: unchanged ✓
+
+### 2.6 Request Refund
+When the user asks to refund an existing Clink order:
+1. **Require Order Context:** Collect or confirm the target `orderId`. Do NOT guess it from memory.
+2. **Call `clink_refund`:** Submit the refund request with the `orderId`.
+   If calling via shell (do NOT omit --args):
+   ```
+   npx mcporter --config "$MCPORTER_CONFIG_PATH" call agent-payment-skills clink_refund --args '{"orderId":"<ORDER_ID>"}'
+   ```
+   You may also include optional notify routing fields `channel`, `target_id`, and `target_type` so the later webhook can route back to the current conversation.
+3. **Interpret Scope Correctly:** `clink_refund` currently applies for a full refund only. Do NOT claim partial-refund support unless the tool schema or backend API is updated.
+4. **Wait For Final Result:** A successful submission only means the refund request was accepted for processing. The final refund outcome is delivered asynchronously through refund webhooks.
+5. **Follow Webhook Ownership:** Final states are owned by:
+   - `agent_refund.succeeded`
+   - `agent_refund.approved`
+   - `agent_refund.failed`
+   - `agent_refund.rejected`
+   Do NOT send a second semantic-equivalent card after the webhook notification arrives.
 
 ### 3. Post-Installation Setup (Strict Single-Step Workflow)
 

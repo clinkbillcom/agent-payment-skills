@@ -2,7 +2,7 @@
 
 [English](README.md) | 简体中文
 
-Agent Payment Skills 可以通过 Clink 为 OpenClaw Agent 增加钱包初始化、支付方式绑定、直接充值和自动充值能力。
+Agent Payment Skills 可以通过 Clink 为 OpenClaw Agent 增加钱包初始化、支付方式绑定、直接充值、退款申请和自动充值能力。
 
 ---
 
@@ -14,6 +14,7 @@ Agent Payment Skills 可以通过 Clink 为 OpenClaw Agent 增加钱包初始化
 - 绑定或切换支付方式
 - 检查当前支付配置是否可用
 - 给商户余额充值
+- 对已有 Clink 订单发起全额退款申请
 - 在其他 Skill 余额不足时自动充值
 - 配置风控规则，提升充值安全性
 
@@ -23,6 +24,7 @@ Agent Payment Skills 可以通过 Clink 为 OpenClaw Agent 增加钱包初始化
 - `帮我绑定支付方式`
 - `检查一下我的支付配置`
 - `给 ModelMax 充值 10 美元`
+- `帮我退款订单 ord_xxx`
 - `开启 Clink 支付自动充值`
 - `查看我的风控规则`
 
@@ -79,6 +81,7 @@ node scripts/pre_install.mjs --channel feishu --target-id <OPEN_ID> --target-typ
 | 支付方式绑定 | 没有可用支付方式时，引导新增支付方式 |
 | 支付方式管理 | 查看、切换或更新已绑定的支付方式 |
 | 充值支付 | 支付商户充值订单或待支付请求 |
+| 退款申请 | 对已有 Clink 订单提交全额退款申请 |
 | 自动充值 | 在其他 Skill 余额不足时协助续费并继续任务 |
 | 风控规则 | 设置充值金额和频率限制 |
 
@@ -102,6 +105,11 @@ node scripts/pre_install.mjs --channel feishu --target-id <OPEN_ID> --target-typ
 
 - `给 ModelMax 充值 10 美元`
 - `支付这笔待充值订单`
+
+### 退款
+
+- `帮我退款订单 ord_xxx`
+- `对这笔 Clink 订单发起退款`
 
 ### 自动充值
 
@@ -127,6 +135,7 @@ node scripts/pre_install.mjs --channel feishu --target-id <OPEN_ID> --target-typ
 
 - 实际支付是否成功取决于你的 Clink 账户状态和可用支付方式
 - 部分支付可能需要额外验证，例如 3DS
+- 退款申请当前按全额退款提交，最终结果通过异步 webhook 回调通知
 - 风控规则可能会拦截或限制充值
 - 如果你明确指定了充值金额，Agent 应优先使用你的金额
 

@@ -2,7 +2,7 @@
 
 English | [简体中文](README-zh.md)
 
-Agent Payment Skills adds wallet setup, payment method binding, direct recharge, and auto top-up support to OpenClaw agents through Clink.
+Agent Payment Skills adds wallet setup, payment method binding, direct recharge, refund request, and auto top-up support to OpenClaw agents through Clink.
 
 ---
 
@@ -14,6 +14,7 @@ After installation, you can ask your agent to:
 - Bind or switch payment methods
 - Check whether your payment setup is ready
 - Recharge a merchant balance
+- Request a full refund for an existing Clink order
 - Use auto top-up when another skill runs out of balance
 - Configure recharge risk rules for safer payments
 
@@ -23,6 +24,7 @@ Examples:
 - `Bind my payment method`
 - `Check my payment setup`
 - `Recharge ModelMax with 10 USD`
+- `Refund order ord_xxx`
 - `Enable Clink payment auto top-up`
 - `Show my risk rules`
 
@@ -79,6 +81,7 @@ Supported payment method flows may include cards, PayPal, Cash App, and other me
 | Payment method binding | Adds a new payment method when none is available |
 | Payment method management | Lists, switches, or updates existing payment methods |
 | Recharge | Pays a merchant order or recharge request |
+| Refund request | Submits a full refund request for an existing Clink order |
 | Auto top-up | Helps another skill continue after insufficient balance |
 | Risk rules | Lets you set recharge limits and frequency controls |
 
@@ -102,6 +105,11 @@ Supported payment method flows may include cards, PayPal, Cash App, and other me
 
 - `Recharge ModelMax with 10 USD`
 - `Pay this pending recharge`
+
+### Refund
+
+- `Refund order ord_xxx`
+- `Apply a refund for this Clink order`
 
 ### Auto Top-Up
 
@@ -127,6 +135,7 @@ This is especially useful for recharge-based skills such as media generation ser
 
 - Payment execution depends on your Clink account status and available payment methods
 - Some payments may require extra verification such as 3DS
+- Refund requests are currently submitted as full refunds and complete asynchronously through webhook callbacks
 - Risk rules can block or limit a recharge based on your safety settings
 - If you provide a specific recharge amount, the agent should use that amount
 
