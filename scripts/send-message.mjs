@@ -7,6 +7,7 @@ import {
   normalizeDeliveryMessageRequest,
   renderMessageFeishuCard,
   renderMessageTelegramCard,
+  renderMessageTelegramText,
   renderMessageMarkdown,
   renderMessagePlainText,
   resolvePreferredLocale,
@@ -97,6 +98,9 @@ function resolveCompiledMessage(payload) {
 
 function resolveText(compiled, channel) {
   const capability = CHANNEL_CAPABILITIES[channel] || { rich: false, text_mode: 'markdown' };
+  if (channel === 'telegram') {
+    return renderMessageTelegramText(compiled);
+  }
   return capability.text_mode === 'plain'
     ? renderMessagePlainText(compiled)
     : renderMessageMarkdown(compiled);
