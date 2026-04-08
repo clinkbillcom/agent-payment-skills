@@ -1,6 +1,6 @@
 ---
 name: agent-payment-skills
-description: "Universal agent skill to integrate Clink payments, handling user initialization, merchant-initiated payments (auto top-ups), direct payments, and async webhook callbacks. Async notify routing uses a unified `channel + target` contract; Feishu and Telegram support rich card delivery with markdown/text fallback for other channels."
+description: "Universal agent skill to integrate Clink payments, handling user initialization, merchant-initiated payments (auto top-ups), direct payments, and async webhook callbacks. Async notify routing uses a unified `channel + target` contract; Feishu uses native cards, Telegram uses rich text/media delivery, and other channels fall back to markdown/text."
 version: "1.0.0"
 metadata:
   openclaw:
@@ -133,7 +133,7 @@ Preferred message schema:
 }
 ```
 
-The sender resolves locale, compiles the message catalog entry into a neutral content model, then renders it into a Feishu card for Feishu, a Telegram card for Telegram, and Markdown/text for other channels.
+The sender resolves locale, compiles the message catalog entry into a neutral content model, then renders it into a Feishu card for Feishu, rich Telegram text/media for Telegram, and Markdown/text for other channels.
 
 For channels without rich-card support, `send-message.mjs` renders Markdown/text and delivers it through the gateway.
 

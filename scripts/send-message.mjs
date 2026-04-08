@@ -119,19 +119,6 @@ function sendFeishuCard(payload, compiled) {
   );
 }
 
-function buildTelegramButtons(telegramCard) {
-  const actions = Array.isArray(telegramCard?.card?.actions) ? telegramCard.card.actions : [];
-  const rows = [];
-  actions.forEach((action) => {
-    if (!action || typeof action !== 'object') return;
-    const label = typeof action.label === 'string' ? action.label.trim() : '';
-    const url = typeof action.url === 'string' ? action.url.trim() : '';
-    if (!label || !url) return;
-    rows.push([{ text: label, url }]);
-  });
-  return rows;
-}
-
 function sendTelegramCard(payload, compiled) {
   const { targetId } = normalizeTarget(payload);
   const telegramCard = renderMessageTelegramCard(compiled);
@@ -139,14 +126,12 @@ function sendTelegramCard(payload, compiled) {
   const mediaUrl = typeof telegramCard?.card?.media?.url === 'string' && telegramCard.card.media.url.trim()
     ? telegramCard.card.media.url.trim()
     : '';
-  const buttons = buildTelegramButtons(telegramCard);
   if (!text && !mediaUrl) {
     throw new Error('No Telegram card content available for delivery');
   }
   const args = ['message', 'send', '--channel', 'telegram', '--target', targetId];
   if (mediaUrl) args.push('--media', mediaUrl);
   if (text) args.push('--message', text);
-  if (buttons.length > 0) args.push('--buttons', JSON.stringify(buttons));
   execFileSync('openclaw', args, {
     encoding: 'utf8',
     stdio: 'pipe',

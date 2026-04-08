@@ -2463,7 +2463,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           email: { type: "string" },
           name: { type: "string" },
-          channel: { type: "string", description: "Optional notify channel. Feishu and Telegram support native cards; other channels receive markdown/text notifications." },
+          channel: { type: "string", description: "Optional notify channel. Feishu supports native cards, Telegram supports rich text/media notifications, and other channels receive markdown/text notifications." },
           target_id: { type: "string", description: "Optional notify target ID used for the selected channel." },
           target_type: { type: "string", description: "Optional notify target type. For Feishu use chat_id or open_id." },
           locale: { type: "string", description: "Optional BCP 47 locale hint for message auto-localization, e.g. zh-CN or en-US." }
@@ -2579,7 +2579,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: {
         type: "object",
         properties: {
-          channel: { type: "string", description: "Notify channel. Feishu and Telegram support native cards; other channels receive markdown/text notifications." },
+          channel: { type: "string", description: "Notify channel. Feishu supports native cards, Telegram supports rich text/media notifications, and other channels receive markdown/text notifications." },
           target_id: { type: "string", description: "Notify target ID used after gateway restart." },
           target_type: { type: "string", description: "Notify target type. For Feishu use chat_id or open_id." },
           locale: { type: "string", description: "Optional BCP 47 locale hint for message auto-localization, e.g. zh-CN or en-US." }
@@ -2593,7 +2593,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: {
         type: "object",
         properties: {
-          channel: { type: "string", description: "Optional notify channel. Feishu and Telegram support native cards; other channels receive markdown/text notifications." },
+          channel: { type: "string", description: "Optional notify channel. Feishu supports native cards, Telegram supports rich text/media notifications, and other channels receive markdown/text notifications." },
           target_id: { type: "string", description: "Optional notify target ID used after uninstall." },
           target_type: { type: "string", description: "Optional notify target type. For Feishu use chat_id or open_id." },
           locale: { type: "string", description: "Optional BCP 47 locale hint for message auto-localization, e.g. zh-CN or en-US." }
