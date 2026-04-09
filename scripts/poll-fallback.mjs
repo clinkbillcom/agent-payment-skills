@@ -341,6 +341,7 @@ async function queryRiskRules(cache) {
     method: 'GET',
     headers: {
       'X-Customer-API-Key': cache.customerAPIKey,
+      'X-Timestamp': Date.now().toString(),
     },
   });
   return normalizeRuleSettings(data);
