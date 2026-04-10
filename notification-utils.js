@@ -1000,6 +1000,150 @@ const MESSAGE_CATALOG = Object.freeze({
       sections: [vars.description],
     }),
   }),
+  'refund.status_checked': defineCatalogEntry({
+    'zh-CN': (vars) => {
+      const statusCode = typeof vars.statusCode === 'string' ? vars.statusCode.trim().toLowerCase() : '';
+      const statusMap = {
+        created: {
+          label: '已创建',
+          description: '退款订单已创建，正在等待后续受理。',
+        },
+        received: {
+          label: '已受理',
+          description: '退款申请已被受理，正在进入后续处理流程。',
+        },
+        refunding: {
+          label: '处理中',
+          description: '退款正在处理中，请稍后再次查询或等待后续通知。',
+        },
+        pending_review: {
+          label: '待审核',
+          description: '退款申请正在等待审核，审核完成后会继续推进。',
+        },
+        success: {
+          label: '退款成功',
+          description: '退款已处理成功，资金将原路退回至原支付方式。',
+        },
+        failed: {
+          label: '退款失败',
+          description: '退款处理失败，请核对订单状态后重试或联系 Clink 支持。',
+        },
+        closed: {
+          label: '已关闭',
+          description: '退款订单已关闭，当前不会继续处理该退款申请。',
+        },
+        review_rejected: {
+          label: '审核拒绝',
+          description: '退款申请未通过审核，请根据原因调整后再试。',
+        },
+      };
+      const statusMeta = statusMap[statusCode] || {
+        label: vars.statusCode || '未知状态',
+        description: '已获取退款状态，请根据当前状态决定后续操作。',
+      };
+      return buildMessageModel({
+        key: 'refund.status_checked',
+        locale: 'zh-CN',
+        title: '🧾 退款状态',
+        theme: 'blue',
+        facts: [
+          ['原订单号', vars.orderId || 'N/A'],
+          ['退款单号', vars.refundId || 'N/A'],
+          ['退款金额', vars.refundAmountDisplay || 'N/A'],
+          ['退款状态', statusMeta.label],
+          ['支付方式 ID', vars.paymentInstrumentId || 'N/A'],
+        ],
+        sections: [
+          statusMeta.description,
+          `退款原因：${vars.refundReason || '无'}\n备注：${vars.remark || '无'}`,
+        ],
+      });
+    },
+    'en-US': (vars) => {
+      const statusCode = typeof vars.statusCode === 'string' ? vars.statusCode.trim().toLowerCase() : '';
+      const statusMap = {
+        created: {
+          label: 'Created',
+          description: 'The refund order was created and is waiting for acceptance.',
+        },
+        received: {
+          label: 'Received',
+          description: 'The refund request was received and is moving into processing.',
+        },
+        refunding: {
+          label: 'Refunding',
+          description: 'The refund is being processed. Check again later or wait for a follow-up notification.',
+        },
+        pending_review: {
+          label: 'Pending Review',
+          description: 'The refund request is waiting for review before it can continue.',
+        },
+        success: {
+          label: 'Refund Successful',
+          description: 'The refund completed successfully and the funds will return to the original payment method.',
+        },
+        failed: {
+          label: 'Refund Failed',
+          description: 'The refund could not be processed. Review the order and retry later if needed.',
+        },
+        closed: {
+          label: 'Closed',
+          description: 'The refund order was closed and will not continue processing.',
+        },
+        review_rejected: {
+          label: 'Review Rejected',
+          description: 'The refund request was rejected during review. Update the request and try again if appropriate.',
+        },
+      };
+      const statusMeta = statusMap[statusCode] || {
+        label: vars.statusCode || 'Unknown Status',
+        description: 'The latest refund status was retrieved.',
+      };
+      return buildMessageModel({
+        key: 'refund.status_checked',
+        locale: 'en-US',
+        title: '🧾 Refund Status',
+        theme: 'blue',
+        facts: [
+          ['Original Order ID', vars.orderId || 'N/A'],
+          ['Refund ID', vars.refundId || 'N/A'],
+          ['Refund Amount', vars.refundAmountDisplay || 'N/A'],
+          ['Refund Status', statusMeta.label],
+          ['Payment Instrument ID', vars.paymentInstrumentId || 'N/A'],
+        ],
+        sections: [
+          statusMeta.description,
+          `Refund Reason: ${vars.refundReason || 'N/A'}\nRemark: ${vars.remark || 'N/A'}`,
+        ],
+      });
+    },
+  }),
+  'refund.status_query_failed': defineCatalogEntry({
+    'zh-CN': (vars) => buildMessageModel({
+      key: 'refund.status_query_failed',
+      locale: 'zh-CN',
+      title: '❌ 退款状态查询失败',
+      theme: 'red',
+      facts: [
+        ['退款单号', vars.refundId || 'N/A'],
+        ['失败原因', vars.reason || 'N/A'],
+        ['错误码', vars.code || 'N/A'],
+      ],
+      sections: [vars.description || '退款状态暂时无法查询，请稍后重试。'],
+    }),
+    'en-US': (vars) => buildMessageModel({
+      key: 'refund.status_query_failed',
+      locale: 'en-US',
+      title: '❌ Refund Status Query Failed',
+      theme: 'red',
+      facts: [
+        ['Refund ID', vars.refundId || 'N/A'],
+        ['Reason', vars.reason || 'N/A'],
+        ['Error Code', vars.code || 'N/A'],
+      ],
+      sections: [vars.description || 'The refund status could not be retrieved right now. Please try again later.'],
+    }),
+  }),
   'install.success': defineCatalogEntry({
     'zh-CN': (vars) => buildMessageModel({
       key: 'install.success',

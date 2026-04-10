@@ -87,6 +87,10 @@ const LOCK_DIR = path.join(SKILL_DIR, 'locks');
 const LOCK_STALE_MS = 120000;
 const MESSAGE_SENDER = path.join(SKILL_DIR, 'scripts', 'send-message.mjs');
 const MERCHANT_CONFIRMATION_RUNNER = path.join(SKILL_DIR, 'scripts', 'run-merchant-confirmation.mjs');
+const POLL_FALLBACK_SCRIPT = path.join(SKILL_DIR, 'scripts', 'poll-fallback.mjs');
+const POLL_START_DELAY_MS = 30_000;
+const POLL_INTERVAL_MS = 5_000;
+const POLL_TIMEOUT_MS = 120_000;
 
 function resolveOpenClawExecutable() {
   const explicit = typeof process.env.OPENCLAW_BIN === 'string' ? process.env.OPENCLAW_BIN.trim() : '';
@@ -154,6 +158,10 @@ function normalizeCache(cache) {
   const normalized = cache && typeof cache === 'object' ? cache : {};
   if (!Array.isArray(normalized.paymentMethods)) normalized.paymentMethods = [];
   if (normalized.defaultPaymentMethodId === undefined) normalized.defaultPaymentMethodId = null;
+  if (normalized.webhookAvailable === undefined) normalized.webhookAvailable = null;
+  if (!normalized.asyncOperations || typeof normalized.asyncOperations !== 'object') {
+    normalized.asyncOperations = {};
+  }
   if (!normalized.orderCardStates || typeof normalized.orderCardStates !== 'object') {
     normalized.orderCardStates = {};
   }
@@ -219,6 +227,57 @@ function normalizeCache(cache) {
     }
   }
   return normalized;
+}
+
+function normalizePaymentMethods(methods) {
+  return Array.isArray(methods)
+    ? methods
+        .map((method) => ({
+          paymentInstrumentId: method.paymentInstrumentId || null,
+          paymentMethodType: method.paymentMethodType || method.paymentInstrumentType || null,
+          cardBrand: method.cardBrand || method.cardScheme || null,
+          cardLast4: method.cardLast4 || method.cardLastFour || null,
+          issuerBank: method.issuerBank || null,
+          walletAccountTag: method.walletAccountTag || method.wallet?.accountTag || null,
+          isDefault: method.isDefault ?? false,
+          isDisabled: method.isDisabled ?? false,
+          status: method.status || ((method.isDisabled ?? false) ? "disabled" : "active"),
+        }))
+        .filter((method) => typeof method.paymentInstrumentId === "string" && method.paymentInstrumentId.trim())
+    : [];
+}
+
+function normalizeRuleSettings(settings) {
+  if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
+    return null;
+  }
+  const normalizeNumberString = (value) => {
+    if (value === undefined || value === null || value === '') return null;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric.toFixed(2) : String(value);
+  };
+  const normalizeInteger = (value) => {
+    if (value === undefined || value === null || value === '') return null;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? String(Math.trunc(numeric)) : String(value);
+  };
+  const normalizeBoolean = (value) => {
+    if (value === undefined || value === null) return null;
+    return Boolean(value);
+  };
+  const normalizeString = (value) => {
+    if (value === undefined || value === null || value === '') return null;
+    return String(value).trim();
+  };
+  return {
+    singleRechargeLimit: normalizeNumberString(settings.singleRechargeLimit),
+    dailyTotalLimit: normalizeNumberString(settings.dailyTotalLimit),
+    dailyMaxCount: normalizeInteger(settings.dailyMaxCount),
+    rechargeInterval: normalizeString(settings.rechargeInterval),
+    manualApprovalThreshold: normalizeNumberString(settings.manualApprovalThreshold),
+    manualApprovalEnabled: normalizeBoolean(settings.manualApprovalEnabled),
+    autoSuspendEnabled: normalizeBoolean(settings.autoSuspendEnabled),
+  };
 }
 
 function normalizeNotifyDestinationValue(value) {
@@ -290,6 +349,103 @@ async function readPaymentMethodsCache() {
 async function writePaymentMethodsCache(cache) {
   await fs.mkdir(path.dirname(CACHE_PATH), { recursive: true });
   await fs.writeFile(CACHE_PATH, JSON.stringify(normalizeCache(cache), null, 2), 'utf8');
+}
+
+function isWebhookAvailable(cache) {
+  return normalizeCache(cache).webhookAvailable !== false;
+}
+
+function isTerminalAsyncOperationStatus(status) {
+  return status === 'succeeded' || status === 'failed' || status === 'timeout' || status === 'cancelled';
+}
+
+function isAsyncOperationExpired(operation, now = Date.now()) {
+  const expireAt = Number(operation?.expireAt || 0);
+  return Number.isFinite(expireAt) && expireAt > 0 && now >= expireAt;
+}
+
+function getActiveAsyncOperation(cache, type) {
+  const normalized = normalizeCache(cache);
+  for (const operation of Object.values(normalized.asyncOperations || {})) {
+    if (operation?.type !== type) continue;
+    if (isTerminalAsyncOperationStatus(operation.status)) continue;
+    if (isAsyncOperationExpired(operation)) continue;
+    return operation;
+  }
+  return null;
+}
+
+function createAsyncOperationId(type) {
+  return `${String(type)}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+}
+
+function buildAsyncOperation(type, snapshotBefore, notifyDestination) {
+  const now = Date.now();
+  return {
+    id: createAsyncOperationId(type),
+    type,
+    status: 'pending',
+    createdAt: now,
+    firstPollAt: now + POLL_START_DELAY_MS,
+    expireAt: now + POLL_TIMEOUT_MS,
+    pollIntervalMs: POLL_INTERVAL_MS,
+    retryCount: 0,
+    snapshotBefore: cloneJsonValue(snapshotBefore),
+    notifyDestination: notifyDestination ? cloneJsonValue(notifyDestination) : null,
+    lastError: '',
+    resultPayload: null,
+  };
+}
+
+function spawnPollFallbackProcessor(operationId) {
+  const child = spawn(process.execPath, [POLL_FALLBACK_SCRIPT, '--operation-id', operationId], {
+    detached: true,
+    stdio: 'ignore',
+  });
+  child.unref();
+}
+
+async function schedulePollFallbackOperation(type, snapshotBefore, notifyDestination = null) {
+  const cache = normalizeCache(await readPaymentMethodsCache() || {});
+  if (isWebhookAvailable(cache)) {
+    return null;
+  }
+
+  const activeOperation = getActiveAsyncOperation(cache, type);
+  if (activeOperation) {
+    if (notifyDestination) {
+      activeOperation.notifyDestination = cloneJsonValue(notifyDestination);
+      cache.asyncOperations[activeOperation.id] = activeOperation;
+      await writePaymentMethodsCache(cache);
+    }
+    await logRequest('poll_fallback/reuse_operation', {
+      operationId: activeOperation.id,
+      type,
+      notifyDestinationUpdated: Boolean(notifyDestination),
+    }, { reused: true });
+    return activeOperation;
+  }
+
+  const operation = buildAsyncOperation(type, snapshotBefore, notifyDestination || getNotifyDestination(cache));
+  cache.asyncOperations[operation.id] = operation;
+  await writePaymentMethodsCache(cache);
+  spawnPollFallbackProcessor(operation.id);
+  await logRequest('poll_fallback/create_operation', {
+    operationId: operation.id,
+    type,
+    firstPollAt: operation.firstPollAt,
+    expireAt: operation.expireAt,
+  }, { scheduled: true });
+  return operation;
+}
+
+async function schedulePollFallbackOperationSafely(type, snapshotBefore, notifyDestination = null) {
+  try {
+    return await schedulePollFallbackOperation(type, snapshotBefore, notifyDestination);
+  } catch (error) {
+    await logError(`poll_fallback/${type}`, error);
+    return null;
+  }
 }
 
 function buildCardStateLockName(orderId, status, sessionId) {
@@ -818,21 +974,7 @@ function buildMerchantConfirmArgs(merchantContext, paymentHandoff) {
 
 async function overwriteCachedBindingMethods(methods) {
   const cache = await readPaymentMethodsCache() || {};
-  const normalizedMethods = Array.isArray(methods)
-    ? methods
-        .map((method) => ({
-          paymentInstrumentId: method.paymentInstrumentId || null,
-          paymentMethodType: method.paymentMethodType || method.paymentInstrumentType || null,
-          cardBrand: method.cardBrand || method.cardScheme || null,
-          cardLast4: method.cardLast4 || method.cardLastFour || null,
-          issuerBank: method.issuerBank || null,
-          walletAccountTag: method.walletAccountTag || method.wallet?.accountTag || null,
-          isDefault: method.isDefault ?? false,
-          isDisabled: method.isDisabled ?? false,
-          status: method.status || ((method.isDisabled ?? false) ? "disabled" : "active"),
-        }))
-        .filter((method) => typeof method.paymentInstrumentId === "string" && method.paymentInstrumentId.trim())
-    : [];
+  const normalizedMethods = normalizePaymentMethods(methods);
   const defaultMethod =
     normalizedMethods.find((method) => method.isDefault) ||
     normalizedMethods[0] ||
@@ -1160,6 +1302,11 @@ async function handle_initialize_wallet(args) {
       const cache = await readPaymentMethodsCache() || {};
       cache.customerId = data.customerId;
       cache.customerAPIKey = data.customerAPIKey;
+      if (typeof data.webhook_available === 'boolean') {
+        cache.webhookAvailable = data.webhook_available;
+      } else if (typeof data.webhookAvailable === 'boolean') {
+        cache.webhookAvailable = data.webhookAvailable;
+      }
       cache.cachedAt = new Date().toISOString();
       await fs.mkdir(path.dirname(CACHE_PATH), { recursive: true });
       await fs.writeFile(CACHE_PATH, JSON.stringify(cache, null, 2), 'utf8');
@@ -1192,11 +1339,21 @@ async function handle_get_wallet_status() {
   return `Wallet Status:\nCustomer ID: ${env.CLINK_CUSTOMER_ID}\nEmail: ${env.CLINK_USER_EMAIL}\nHas API Key: ${!!env.CLINK_CUSTOMER_API_KEY}`;
 }
 
-async function handle_get_binding_link() {
+async function handle_get_binding_link(args = {}) {
   try {
     const { bindingUrl, bindingToken, methods, env } = await fetchBindingData();
     const cache = await readPaymentMethodsCache() || {};
-    const notifyDestination = getNotifyDestination(cache);
+    let requestNotifyDestination = null;
+    try {
+      requestNotifyDestination = parseNotifyDestinationArgs(args);
+    } catch (error) {
+      return `ERROR: ${error.message}`;
+    }
+    if (requestNotifyDestination) {
+      cache.notifyDestination = requestNotifyDestination;
+      await writePaymentMethodsCache(cache);
+    }
+    const notifyDestination = requestNotifyDestination || getNotifyDestination(cache);
 
     if (methods.length === 0) {
       const setupUrl = buildRedirectUrl(bindingUrl, "payment-method-setup");
@@ -1211,6 +1368,7 @@ async function handle_get_binding_link() {
       if (notifyDestination) {
         try {
           sendNotificationDirect(notifyDestination, notification);
+          await schedulePollFallbackOperationSafely('bind_card', normalizePaymentMethods(methods), notifyDestination);
           return `[SYSTEM DIRECTIVE] DIRECT_SEND: The notification has been sent. Do NOT send another card.
 Wait for the payment_method.added webhook before continuing initialization.
 
@@ -1301,17 +1459,29 @@ ${formatNotificationInstruction({
   }
 }
 
-async function handle_get_risk_rules_link() {
+async function handle_get_risk_rules_link(args = {}) {
   try {
     const { bindingUrl } = await fetchBindingData();
     const notification = buildRiskRulesNotification(bindingUrl);
     const cache = await readPaymentMethodsCache() || {};
-    const notifyDestination = getNotifyDestination(cache);
+    let requestNotifyDestination = null;
+    try {
+      requestNotifyDestination = parseNotifyDestinationArgs(args);
+    } catch (error) {
+      return `ERROR: ${error.message}`;
+    }
+    if (requestNotifyDestination) {
+      cache.notifyDestination = requestNotifyDestination;
+      await writePaymentMethodsCache(cache);
+    }
+    const notifyDestination = requestNotifyDestination || getNotifyDestination(cache);
+    const snapshotBefore = normalizeRuleSettings(cache.riskRules);
     let fallbackReason = 'missing_notify_destination';
 
     if (notifyDestination) {
       try {
         sendNotificationDirect(notifyDestination, notification);
+        await schedulePollFallbackOperationSafely('update_rule', snapshotBefore, notifyDestination);
         return `[SYSTEM DIRECTIVE] DIRECT_SEND: Risk rules link generated.
 The notification has been sent. Do NOT send another card.`;
       } catch (err) {
@@ -1334,9 +1504,9 @@ The notification has been sent. Do NOT send another card.`;
   }
 }
 
-async function handle_get_payment_method_setup_link() {
+async function handle_get_payment_method_setup_link(args = {}) {
   try {
-    const { bindingUrl, env } = await fetchBindingData();
+    const { bindingUrl, env, methods } = await fetchBindingData();
     const setupUrl = buildRedirectUrl(bindingUrl, "payment-method-setup");
     const notification = createMessageRequest({
       messageKey: 'payment.method.setup_link',
@@ -1346,12 +1516,24 @@ async function handle_get_payment_method_setup_link() {
       },
     });
     const cache = await readPaymentMethodsCache() || {};
-    const notifyDestination = getNotifyDestination(cache);
+    let requestNotifyDestination = null;
+    try {
+      requestNotifyDestination = parseNotifyDestinationArgs(args);
+    } catch (error) {
+      return `ERROR: ${error.message}`;
+    }
+    if (requestNotifyDestination) {
+      cache.notifyDestination = requestNotifyDestination;
+      await writePaymentMethodsCache(cache);
+    }
+    const notifyDestination = requestNotifyDestination || getNotifyDestination(cache);
+    const snapshotBefore = normalizePaymentMethods(methods);
     let fallbackReason = 'missing_notify_destination';
 
     if (notifyDestination) {
       try {
         sendNotificationDirect(notifyDestination, notification);
+        await schedulePollFallbackOperationSafely('bind_card', snapshotBefore, notifyDestination);
         return `[SYSTEM DIRECTIVE] DIRECT_SEND: Payment method setup link generated.
 The notification has been sent. Do NOT send another card.`;
       } catch (err) {
@@ -1374,7 +1556,7 @@ The notification has been sent. Do NOT send another card.`;
   }
 }
 
-async function handle_get_payment_method_modify_link() {
+async function handle_get_payment_method_modify_link(args = {}) {
   try {
     const { bindingUrl, methods } = await fetchBindingData();
     const modifyUrl = buildRedirectUrl(bindingUrl, "payment-method-modify");
@@ -1388,12 +1570,24 @@ async function handle_get_payment_method_modify_link() {
       },
     });
     const cache = await readPaymentMethodsCache() || {};
-    const notifyDestination = getNotifyDestination(cache);
+    let requestNotifyDestination = null;
+    try {
+      requestNotifyDestination = parseNotifyDestinationArgs(args);
+    } catch (error) {
+      return `ERROR: ${error.message}`;
+    }
+    if (requestNotifyDestination) {
+      cache.notifyDestination = requestNotifyDestination;
+      await writePaymentMethodsCache(cache);
+    }
+    const notifyDestination = requestNotifyDestination || getNotifyDestination(cache);
+    const snapshotBefore = normalizePaymentMethods(methods);
     let fallbackReason = 'missing_notify_destination';
 
     if (notifyDestination) {
       try {
         sendNotificationDirect(notifyDestination, notification);
+        await schedulePollFallbackOperationSafely('change_card', snapshotBefore, notifyDestination);
         return `[SYSTEM DIRECTIVE] DIRECT_SEND: Payment method management link generated.
 The notification has been sent. Do NOT send another card.`;
       } catch (err) {
@@ -2180,6 +2374,124 @@ Wait for the later refund webhook to deliver the final success/failure notificat
   }
 }
 
+function normalizeRefundStatus(status) {
+  return typeof status === 'string' && status.trim()
+    ? status.trim().toLowerCase()
+    : 'unknown';
+}
+
+function buildRefundStatusNotification(data) {
+  const refundStatus = normalizeRefundStatus(data.status);
+  const refundAmountDisplay = formatAmountWithCurrency(
+    data.refundAmount,
+    data.refundCurrency || 'USD',
+  );
+
+  return createMessageRequest({
+    messageKey: 'refund.status_checked',
+    vars: {
+      orderId: data.orderId || 'N/A',
+      refundId: data.refundOrderId || 'N/A',
+      refundAmountDisplay,
+      statusCode: refundStatus,
+      paymentInstrumentId: data.paymentInstrumentId || 'N/A',
+      refundReason: data.refundReason || '',
+      remark: data.remark || '',
+    },
+  });
+}
+
+async function handle_get_refund_status(args) {
+  if (!args || typeof args !== 'object') {
+    return "ERROR: get_refund_status requires an args object. Missing: refundOrderId.";
+  }
+
+  try {
+    const requestNotifyDestination = parseNotifyDestinationArgs(args);
+    if (requestNotifyDestination) {
+      const cache = normalizeCache(await readPaymentMethodsCache() || {});
+      cache.notifyDestination = requestNotifyDestination;
+      await writePaymentMethodsCache(cache);
+    }
+  } catch (error) {
+    return `ERROR: ${error.message}`;
+  }
+
+  const refundOrderId = typeof args.refundOrderId === 'string' ? args.refundOrderId.trim() : '';
+  if (!refundOrderId) {
+    return "ERROR: get_refund_status requires 'refundOrderId'.";
+  }
+
+  const env = await getPaymentEnv();
+  if (!env.CLINK_CUSTOMER_API_KEY || !env.CLINK_CUSTOMER_ID) {
+    return "Wallet not initialized. Please run initialize_wallet first.";
+  }
+
+  const timestamp = Date.now().toString();
+  try {
+    const data = await fetchClink(`/agent/cwallet/refund/${encodeURIComponent(refundOrderId)}`, {
+      method: 'GET',
+      headers: {
+        "X-Customer-API-Key": env.CLINK_CUSTOMER_API_KEY,
+        "X-Timestamp": timestamp,
+      },
+    });
+    await logRequest('get_refund_status', { refundOrderId }, data);
+
+    const notification = buildRefundStatusNotification(data);
+    const cache = await readPaymentMethodsCache() || {};
+    const notifyDestination = getNotifyDestination(cache);
+    let fallbackReason = 'missing_notify_destination';
+
+    if (notifyDestination) {
+      try {
+        sendNotificationDirect(notifyDestination, notification);
+        return `[SYSTEM DIRECTIVE] DIRECT_SEND: Refund status fetched successfully.
+The notification has been sent. Do NOT send another card.`;
+      } catch (sendErr) {
+        fallbackReason = 'direct_send_failed';
+        await logError('get_refund_status/direct_send', sendErr);
+      }
+    }
+
+    await logNotificationFallback('get_refund_status', { cache, message: notification, reason: fallbackReason });
+    return formatNotificationInstruction({
+      summary: 'Refund status fetched successfully.',
+      notifications: notification,
+      followUp: [
+        'After sending the notification, you may add a brief natural-language reply if helpful, but do not repeat the notification contents.',
+        'Do NOT restate the refund details verbatim in natural language.',
+      ],
+    });
+  } catch (err) {
+    await logError('get_refund_status', err);
+    const code = err instanceof ClinkApiError ? err.code : null;
+    const reason = err instanceof ClinkApiError
+      ? (err.raw?.msg || err.message || '退款状态查询失败')
+      : err.message;
+    const description = code === 71160007
+      ? '未找到对应的退款单号，请确认 refundOrderId 是否正确。'
+      : '退款状态暂时无法查询，请稍后重试。如问题持续，请联系 Clink 支持排查。';
+
+    return formatNotificationInstruction({
+      summary: 'Refund status query failed.',
+      notifications: createMessageRequest({
+        messageKey: 'refund.status_query_failed',
+        vars: {
+          refundId: refundOrderId,
+          reason,
+          code: code || 'N/A',
+          description,
+        },
+      }),
+      followUp: [
+        'After sending the notification, you may add a brief natural-language reply if helpful, but do not repeat the notification contents.',
+        'Do NOT restate the failure verbatim in natural language.',
+      ],
+    });
+  }
+}
+
 async function handle_install_system_hooks(args) {
   const skillDir = SKILL_DIR;
   const hooksTarget = path.join(OPENCLAW_DIR, 'hooks', 'transforms', 'my_payment_webhook.mjs');
@@ -2477,22 +2789,54 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "get_binding_link",
       description: "Generates a URL for the user to bind a new payment method and returns currently bound methods.",
-      inputSchema: { type: "object", properties: {} }
+      inputSchema: {
+        type: "object",
+        properties: {
+          channel: { type: "string", description: "Optional notify channel." },
+          target_id: { type: "string", description: "Optional notify target ID used for direct delivery." },
+          target_type: { type: "string", description: "Optional notify target type. For Feishu use chat_id or open_id." },
+          locale: { type: "string", description: "Optional BCP 47 locale hint for message auto-localization, e.g. zh-CN or en-US." }
+        }
+      }
     },
     {
       name: "get_risk_rules_link",
       description: "Generates a URL for the user to configure recharge risk rules (per-charge limit, daily limit, frequency, etc.).",
-      inputSchema: { type: "object", properties: {} }
+      inputSchema: {
+        type: "object",
+        properties: {
+          channel: { type: "string", description: "Optional notify channel." },
+          target_id: { type: "string", description: "Optional notify target ID used for direct delivery." },
+          target_type: { type: "string", description: "Optional notify target type. For Feishu use chat_id or open_id." },
+          locale: { type: "string", description: "Optional BCP 47 locale hint for message auto-localization, e.g. zh-CN or en-US." }
+        }
+      }
     },
     {
       name: "get_payment_method_setup_link",
       description: "Generates a URL for the user to add a new payment method (credit card, PayPal, etc.).",
-      inputSchema: { type: "object", properties: {} }
+      inputSchema: {
+        type: "object",
+        properties: {
+          channel: { type: "string", description: "Optional notify channel." },
+          target_id: { type: "string", description: "Optional notify target ID used for direct delivery." },
+          target_type: { type: "string", description: "Optional notify target type. For Feishu use chat_id or open_id." },
+          locale: { type: "string", description: "Optional BCP 47 locale hint for message auto-localization, e.g. zh-CN or en-US." }
+        }
+      }
     },
     {
       name: "get_payment_method_modify_link",
       description: "Generates a URL for the user to manage, switch, or modify existing payment methods.",
-      inputSchema: { type: "object", properties: {} }
+      inputSchema: {
+        type: "object",
+        properties: {
+          channel: { type: "string", description: "Optional notify channel." },
+          target_id: { type: "string", description: "Optional notify target ID used for direct delivery." },
+          target_type: { type: "string", description: "Optional notify target type. For Feishu use chat_id or open_id." },
+          locale: { type: "string", description: "Optional BCP 47 locale hint for message auto-localization, e.g. zh-CN or en-US." }
+        }
+      }
     },
     {
       name: "list_payment_methods",
@@ -2572,6 +2916,21 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       }
     },
     {
+      name: "get_refund_status",
+      description: "Query the latest status of an existing Clink refund order and return a status card.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          refundOrderId: { type: "string", description: "Clink refund order ID to query" },
+          channel: { type: "string", description: "Optional notify channel. If provided with target_id and target_type, it refreshes the cached notify destination." },
+          target_id: { type: "string", description: "Optional notify target ID used for direct delivery." },
+          target_type: { type: "string", description: "Optional notify target type. For Feishu use chat_id or open_id." },
+          locale: { type: "string", description: "Optional BCP 47 locale hint for message auto-localization, e.g. zh-CN or en-US." }
+        },
+        required: ["refundOrderId"]
+      }
+    },
+    {
       name: "install_system_hooks",
       description: "Update openclaw.json and restart the gateway in the background after a 3-second delay. Triggered directly by the install workflow with no extra text authorization required.",
       inputSchema: {
@@ -2609,10 +2968,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     switch (name) {
       case "initialize_wallet":             result = await handle_initialize_wallet(args); break;
       case "get_wallet_status":             result = await handle_get_wallet_status(); break;
-      case "get_binding_link":              result = await handle_get_binding_link(); break;
-      case "get_risk_rules_link":           result = await handle_get_risk_rules_link(); break;
-      case "get_payment_method_setup_link": result = await handle_get_payment_method_setup_link(); break;
-      case "get_payment_method_modify_link":result = await handle_get_payment_method_modify_link(); break;
+      case "get_binding_link":              result = await handle_get_binding_link(args); break;
+      case "get_risk_rules_link":           result = await handle_get_risk_rules_link(args); break;
+      case "get_payment_method_setup_link": result = await handle_get_payment_method_setup_link(args); break;
+      case "get_payment_method_modify_link":result = await handle_get_payment_method_modify_link(args); break;
       case "list_payment_methods":          result = await handle_list_payment_methods(args); break;
       case "get_payment_method_detail":     result = await handle_get_payment_method_detail(args); break;
       case "update_payment_method":         result = await handle_update_payment_method(args); break;
@@ -2621,6 +2980,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "pre_check_account":             result = await handle_pre_check_account(); break;
       case "clink_pay":                     result = await handle_clink_pay(args); break;
       case "clink_refund":                  result = await handle_clink_refund(args); break;
+      case "get_refund_status":             result = await handle_get_refund_status(args); break;
       case "install_system_hooks":          result = await handle_install_system_hooks(args); break;
       case "uninstall_system_hooks":        result = await handle_uninstall_system_hooks(args); break;
       default: throw new Error(`Unknown tool: ${name}`);

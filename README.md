@@ -15,6 +15,7 @@ After installation, you can ask your agent to:
 - Check whether your payment setup is ready
 - Recharge a merchant balance
 - Request a full refund for an existing Clink order
+- Query the latest status of an existing refund order
 - Use auto top-up when another skill runs out of balance
 - Configure recharge risk rules for safer payments
 
