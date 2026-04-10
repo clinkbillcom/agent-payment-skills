@@ -40,6 +40,8 @@ tools:
     description: Execute a payment via Clink. Supports direct mode (merchant_id + amount + currency) and session mode (sessionId from merchant). merchant_integration must include server, confirm_tool, and optional confirm_args.
   - name: clink_refund
     description: Apply for a full refund on an existing Clink order via the customer's Clink wallet. Requires `orderId` and completes asynchronously through refund webhooks.
+  - name: get_refund_status
+    description: Query the latest status of an existing Clink refund order via `refundOrderId` and return a refund-status card.
   - name: install_system_hooks
     description: Update `openclaw.json` and restart the gateway in the background after a 3-second delay. Triggered directly by the install workflow with no extra text authorization required.
   - name: uninstall_system_hooks
@@ -338,6 +340,17 @@ When the user asks to refund an existing Clink order:
    - `agent_refund.failed`
    - `agent_refund.rejected`
    Do NOT send a second semantic-equivalent card after the webhook notification arrives.
+
+### 2.7 Query Refund Status
+When the user asks to check an existing refund:
+1. **Require Refund Context:** Collect or confirm the target `refundOrderId`. Do NOT guess it from memory.
+2. **Call `get_refund_status`:** Query the current refund state with the `refundOrderId`.
+   If calling via shell (do NOT omit --args):
+   ```
+   npx mcporter --config "$MCPORTER_CONFIG_PATH" call agent-payment-skills get_refund_status --args '{"refundOrderId":"<REFUND_ORDER_ID>"}'
+   ```
+3. **Return The Status Card:** The tool returns a status card for current states such as `pending_review`, `refunding`, `success`, `failed`, or `review_rejected`.
+4. **Handle Missing Refunds Carefully:** If the backend returns `71160007`, tell the user the refund order was not found and ask them to confirm the refund order ID.
 
 ### 3. Post-Installation Setup (Strict Single-Step Workflow)
 

@@ -2374,6 +2374,124 @@ Wait for the later refund webhook to deliver the final success/failure notificat
   }
 }
 
+function normalizeRefundStatus(status) {
+  return typeof status === 'string' && status.trim()
+    ? status.trim().toLowerCase()
+    : 'unknown';
+}
+
+function buildRefundStatusNotification(data) {
+  const refundStatus = normalizeRefundStatus(data.status);
+  const refundAmountDisplay = formatAmountWithCurrency(
+    data.refundAmount,
+    data.refundCurrency || 'USD',
+  );
+
+  return createMessageRequest({
+    messageKey: 'refund.status_checked',
+    vars: {
+      orderId: data.orderId || 'N/A',
+      refundId: data.refundOrderId || 'N/A',
+      refundAmountDisplay,
+      statusCode: refundStatus,
+      paymentInstrumentId: data.paymentInstrumentId || 'N/A',
+      refundReason: data.refundReason || '',
+      remark: data.remark || '',
+    },
+  });
+}
+
+async function handle_get_refund_status(args) {
+  if (!args || typeof args !== 'object') {
+    return "ERROR: get_refund_status requires an args object. Missing: refundOrderId.";
+  }
+
+  try {
+    const requestNotifyDestination = parseNotifyDestinationArgs(args);
+    if (requestNotifyDestination) {
+      const cache = normalizeCache(await readPaymentMethodsCache() || {});
+      cache.notifyDestination = requestNotifyDestination;
+      await writePaymentMethodsCache(cache);
+    }
+  } catch (error) {
+    return `ERROR: ${error.message}`;
+  }
+
+  const refundOrderId = typeof args.refundOrderId === 'string' ? args.refundOrderId.trim() : '';
+  if (!refundOrderId) {
+    return "ERROR: get_refund_status requires 'refundOrderId'.";
+  }
+
+  const env = await getPaymentEnv();
+  if (!env.CLINK_CUSTOMER_API_KEY || !env.CLINK_CUSTOMER_ID) {
+    return "Wallet not initialized. Please run initialize_wallet first.";
+  }
+
+  const timestamp = Date.now().toString();
+  try {
+    const data = await fetchClink(`/agent/cwallet/refund/${encodeURIComponent(refundOrderId)}`, {
+      method: 'GET',
+      headers: {
+        "X-Customer-API-Key": env.CLINK_CUSTOMER_API_KEY,
+        "X-Timestamp": timestamp,
+      },
+    });
+    await logRequest('get_refund_status', { refundOrderId }, data);
+
+    const notification = buildRefundStatusNotification(data);
+    const cache = await readPaymentMethodsCache() || {};
+    const notifyDestination = getNotifyDestination(cache);
+    let fallbackReason = 'missing_notify_destination';
+
+    if (notifyDestination) {
+      try {
+        sendNotificationDirect(notifyDestination, notification);
+        return `[SYSTEM DIRECTIVE] DIRECT_SEND: Refund status fetched successfully.
+The notification has been sent. Do NOT send another card.`;
+      } catch (sendErr) {
+        fallbackReason = 'direct_send_failed';
+        await logError('get_refund_status/direct_send', sendErr);
+      }
+    }
+
+    await logNotificationFallback('get_refund_status', { cache, message: notification, reason: fallbackReason });
+    return formatNotificationInstruction({
+      summary: 'Refund status fetched successfully.',
+      notifications: notification,
+      followUp: [
+        'After sending the notification, you may add a brief natural-language reply if helpful, but do not repeat the notification contents.',
+        'Do NOT restate the refund details verbatim in natural language.',
+      ],
+    });
+  } catch (err) {
+    await logError('get_refund_status', err);
+    const code = err instanceof ClinkApiError ? err.code : null;
+    const reason = err instanceof ClinkApiError
+      ? (err.raw?.msg || err.message || '退款状态查询失败')
+      : err.message;
+    const description = code === 71160007
+      ? '未找到对应的退款单号，请确认 refundOrderId 是否正确。'
+      : '退款状态暂时无法查询，请稍后重试。如问题持续，请联系 Clink 支持排查。';
+
+    return formatNotificationInstruction({
+      summary: 'Refund status query failed.',
+      notifications: createMessageRequest({
+        messageKey: 'refund.status_query_failed',
+        vars: {
+          refundId: refundOrderId,
+          reason,
+          code: code || 'N/A',
+          description,
+        },
+      }),
+      followUp: [
+        'After sending the notification, you may add a brief natural-language reply if helpful, but do not repeat the notification contents.',
+        'Do NOT restate the failure verbatim in natural language.',
+      ],
+    });
+  }
+}
+
 async function handle_install_system_hooks(args) {
   const skillDir = SKILL_DIR;
   const hooksTarget = path.join(OPENCLAW_DIR, 'hooks', 'transforms', 'my_payment_webhook.mjs');
@@ -2798,6 +2916,21 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       }
     },
     {
+      name: "get_refund_status",
+      description: "Query the latest status of an existing Clink refund order and return a status card.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          refundOrderId: { type: "string", description: "Clink refund order ID to query" },
+          channel: { type: "string", description: "Optional notify channel. If provided with target_id and target_type, it refreshes the cached notify destination." },
+          target_id: { type: "string", description: "Optional notify target ID used for direct delivery." },
+          target_type: { type: "string", description: "Optional notify target type. For Feishu use chat_id or open_id." },
+          locale: { type: "string", description: "Optional BCP 47 locale hint for message auto-localization, e.g. zh-CN or en-US." }
+        },
+        required: ["refundOrderId"]
+      }
+    },
+    {
       name: "install_system_hooks",
       description: "Update openclaw.json and restart the gateway in the background after a 3-second delay. Triggered directly by the install workflow with no extra text authorization required.",
       inputSchema: {
@@ -2847,6 +2980,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       case "pre_check_account":             result = await handle_pre_check_account(); break;
       case "clink_pay":                     result = await handle_clink_pay(args); break;
       case "clink_refund":                  result = await handle_clink_refund(args); break;
+      case "get_refund_status":             result = await handle_get_refund_status(args); break;
       case "install_system_hooks":          result = await handle_install_system_hooks(args); break;
       case "uninstall_system_hooks":        result = await handle_uninstall_system_hooks(args); break;
       default: throw new Error(`Unknown tool: ${name}`);

@@ -15,6 +15,7 @@ Agent Payment Skills 可以通过 Clink 为 OpenClaw Agent 增加钱包初始化
 - 检查当前支付配置是否可用
 - 给商户余额充值
 - 对已有 Clink 订单发起全额退款申请
+- 查询已有退款单的最新状态
 - 在其他 Skill 余额不足时自动充值
 - 配置风控规则，提升充值安全性
 
