@@ -39,9 +39,9 @@ tools:
   - name: clink_pay
     description: Execute a payment via Clink. Supports direct mode (merchant_id + amount + currency) and session mode (sessionId from merchant). merchant_integration must include server, confirm_tool, and optional confirm_args.
   - name: clink_refund
-    description: Apply for a full refund on an existing Clink order via the customer's Clink wallet. Requires `orderId` and completes asynchronously through refund webhooks.
+    description: Apply for a NEW full refund on an existing Clink order. Requires the ORIGINAL `orderId` (starts with `order_`). Do NOT use this tool for checking the status of an existing refund request.
   - name: get_refund_status
-    description: Query the latest status of an existing Clink refund order via `refundOrderId` and return a refund-status card.
+    description: Query the latest status of an ALREADY SUBMITTED Clink refund order via `refundOrderId` (starts with `rfd_`). Use this tool when the user asks for the "status" or "progress" of a refund.
   - name: install_system_hooks
     description: Update `openclaw.json` and restart the gateway in the background after a 3-second delay. Triggered directly by the install workflow with no extra text authorization required.
   - name: uninstall_system_hooks
