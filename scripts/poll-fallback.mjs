@@ -5,6 +5,7 @@ import path from 'path';
 import https from 'https';
 import { CONFIG } from '../config.mjs';
 import { createMessageRequest } from '../notification-utils.js';
+import { buildPollFallbackTimeoutMessageRequest } from '../poll-fallback-utils.mjs';
 
 const SCRIPT_DIR = path.dirname(new URL(import.meta.url).pathname);
 const SKILL_DIR = path.join(SCRIPT_DIR, '..');
@@ -496,6 +497,30 @@ async function tryHandleRuleSuccess(operation, latestRules) {
   return true;
 }
 
+async function notifyTimeout(operation) {
+  const cache = await readCache();
+  const notifyDestination = getNotifyDestination(cache, operation.notifyDestination);
+  if (!notifyDestination) {
+    await updateOperation(operation.id, {
+      lastError: `Poll fallback timed out without a notify destination for ${operation.type}.`,
+    });
+    return false;
+  }
+
+  const timeoutNotification = createMessageRequest(
+    buildPollFallbackTimeoutMessageRequest(operation.type),
+  );
+
+  try {
+    await sendNotifications(notifyDestination, [timeoutNotification]);
+    return true;
+  } catch (error) {
+    await logError(`${operation.type}/timeout_send`, error);
+    await updateOperation(operation.id, { lastError: error instanceof Error ? error.message : String(error) });
+    return false;
+  }
+}
+
 async function sleep(ms) {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -511,8 +536,15 @@ async function runOperation(operationId) {
     const firstPollAt = Number(operation.firstPollAt || 0);
     const expireAt = Number(operation.expireAt || 0);
     if (Number.isFinite(expireAt) && expireAt > 0 && now >= expireAt) {
-      await finalizeOperation(operationId, { status: 'timeout' });
-      await logRequest('timeout', { operationId, type: operation.type });
+      const timeoutNotified = await notifyTimeout(operation);
+      await finalizeOperation(operationId, {
+        status: 'timeout',
+        resultPayload: {
+          completionSource: 'poll',
+          timeoutNotified,
+        },
+      });
+      await logRequest('timeout', { operationId, type: operation.type, timeoutNotified });
       return;
     }
     if (Number.isFinite(firstPollAt) && firstPollAt > now) {

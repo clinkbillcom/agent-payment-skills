@@ -13,6 +13,10 @@ import {
   createMessageRequest,
   renderMessageMarkdown,
 } from "./notification-utils.js";
+import {
+  buildDirectSendDirective,
+  getReusableAsyncOperation,
+} from "./poll-fallback-utils.mjs";
 
 // ------------------------------------------------------------------
 // CONFIG HELPERS
@@ -355,26 +359,6 @@ function isWebhookAvailable(cache) {
   return normalizeCache(cache).webhookAvailable !== false;
 }
 
-function isTerminalAsyncOperationStatus(status) {
-  return status === 'succeeded' || status === 'failed' || status === 'timeout' || status === 'cancelled';
-}
-
-function isAsyncOperationExpired(operation, now = Date.now()) {
-  const expireAt = Number(operation?.expireAt || 0);
-  return Number.isFinite(expireAt) && expireAt > 0 && now >= expireAt;
-}
-
-function getActiveAsyncOperation(cache, type) {
-  const normalized = normalizeCache(cache);
-  for (const operation of Object.values(normalized.asyncOperations || {})) {
-    if (operation?.type !== type) continue;
-    if (isTerminalAsyncOperationStatus(operation.status)) continue;
-    if (isAsyncOperationExpired(operation)) continue;
-    return operation;
-  }
-  return null;
-}
-
 function createAsyncOperationId(type) {
   return `${String(type)}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
 }
@@ -411,7 +395,7 @@ async function schedulePollFallbackOperation(type, snapshotBefore, notifyDestina
     return null;
   }
 
-  const activeOperation = getActiveAsyncOperation(cache, type);
+  const activeOperation = getReusableAsyncOperation(cache, type);
   if (activeOperation) {
     if (notifyDestination) {
       activeOperation.notifyDestination = cloneJsonValue(notifyDestination);
@@ -446,6 +430,47 @@ async function schedulePollFallbackOperationSafely(type, snapshotBefore, notifyD
     await logError(`poll_fallback/${type}`, error);
     return null;
   }
+}
+
+function requiresPollFallback(cache) {
+  return normalizeCache(cache).webhookAvailable === false;
+}
+
+async function ensureRequiredPollFallback(type, snapshotBefore, cache, notifyDestination = null) {
+  const normalizedCache = normalizeCache(cache);
+  if (!requiresPollFallback(normalizedCache)) {
+    return { required: false, operation: null };
+  }
+  const operation = await schedulePollFallbackOperationSafely(
+    type,
+    snapshotBefore,
+    notifyDestination || getNotifyDestination(normalizedCache),
+  );
+  return {
+    required: true,
+    operation: operation ? cloneJsonValue(operation) : null,
+  };
+}
+
+function getRequiredPollFallbackLines({ fallback, successEvent }) {
+  if (!fallback?.required) return [];
+  if (!fallback.operation) {
+    return [
+      'MANDATORY: webhookAvailable=false — poll fallback could not be scheduled automatically.',
+      `This flow is NOT complete. Do NOT stop here. Retry and continue checking for ${successEvent} until success, failure, or timeout.`,
+    ];
+  }
+  return [
+    'MANDATORY: webhookAvailable=false — poll fallback is active.',
+    `This flow is NOT complete. Continue monitoring for ${successEvent} until success, failure, or timeout.`,
+    `Poll fallback operation: ${fallback.operation.id}`,
+  ];
+}
+
+function normalizeRefundStatusCode(status) {
+  return typeof status === 'string' && status.trim()
+    ? status.trim().toLowerCase()
+    : 'unknown';
 }
 
 function buildCardStateLockName(orderId, status, sessionId) {
@@ -1324,6 +1349,7 @@ You MUST IMMEDIATELY call the "get_binding_link" tool to check for existing paym
 
 After calling "get_binding_link", use the returned Markdown notification content for the current channel.
 If "get_binding_link" returns a DIRECT_SEND system directive, do NOT send any additional markdown or notification in this turn.
+If the cached wallet state says webhookAvailable=false, "get_binding_link" MUST start the poll fallback flow and you MUST continue waiting for that async completion path instead of stopping at WAIT_FOR_WEBHOOK.
 Otherwise, follow its returned notification instruction exactly once.`;
   } catch (err) {
     await logError('initialize_wallet', err);
@@ -1364,15 +1390,27 @@ async function handle_get_binding_link(args = {}) {
           setupUrl,
         },
       });
+      const pollFallback = await ensureRequiredPollFallback(
+        'bind_card',
+        normalizePaymentMethods(methods),
+        cache,
+        notifyDestination,
+      );
+      const pollFallbackLines = getRequiredPollFallbackLines({
+        fallback: pollFallback,
+        successEvent: 'payment_method.added',
+      });
       let fallbackReason = 'missing_notify_destination';
       if (notifyDestination) {
         try {
           sendNotificationDirect(notifyDestination, notification);
-          await schedulePollFallbackOperationSafely('bind_card', normalizePaymentMethods(methods), notifyDestination);
-          return `[SYSTEM DIRECTIVE] DIRECT_SEND: The notification has been sent. Do NOT send another card.
-Wait for the payment_method.added webhook before continuing initialization.
-
-Extracted Binding Token for future use: ${bindingToken}`;
+          return buildDirectSendDirective({
+            summary: 'Binding notification delivered.',
+            pollFallback,
+            pollFallbackLines,
+            webhookWaitMessage: 'Wait for the payment_method.added webhook before continuing initialization.',
+            suffix: `Extracted Binding Token for future use: ${bindingToken}`,
+          });
         } catch (err) {
           fallbackReason = 'direct_send_failed';
           await logError('get_binding_link/direct_send_unbound', err);
@@ -1385,6 +1423,9 @@ ${formatNotificationInstruction({
   notifications: notification,
   followUp: [
     'After sending the notification, you may add a brief natural-language reply if helpful, but do not repeat the notification contents.',
+    ...(pollFallback.required
+      ? pollFallbackLines
+      : ['Wait for the payment_method.added webhook before continuing initialization.']),
     '',
     `Extracted Binding Token for future use: ${bindingToken}`,
   ],
@@ -1476,14 +1517,27 @@ async function handle_get_risk_rules_link(args = {}) {
     }
     const notifyDestination = requestNotifyDestination || getNotifyDestination(cache);
     const snapshotBefore = normalizeRuleSettings(cache.riskRules);
+    const pollFallback = await ensureRequiredPollFallback(
+      'update_rule',
+      snapshotBefore,
+      cache,
+      notifyDestination,
+    );
+    const pollFallbackLines = getRequiredPollFallbackLines({
+      fallback: pollFallback,
+      successEvent: 'risk_rule.updated',
+    });
     let fallbackReason = 'missing_notify_destination';
 
     if (notifyDestination) {
       try {
         sendNotificationDirect(notifyDestination, notification);
-        await schedulePollFallbackOperationSafely('update_rule', snapshotBefore, notifyDestination);
-        return `[SYSTEM DIRECTIVE] DIRECT_SEND: Risk rules link generated.
-The notification has been sent. Do NOT send another card.`;
+        return buildDirectSendDirective({
+          summary: 'Risk rules link generated.',
+          pollFallback,
+          pollFallbackLines,
+          webhookWaitMessage: 'Wait for the risk_rule.updated webhook before treating the change as complete.',
+        });
       } catch (err) {
         fallbackReason = 'direct_send_failed';
         await logError('get_risk_rules_link/direct_send', err);
@@ -1496,6 +1550,9 @@ The notification has been sent. Do NOT send another card.`;
       notifications: notification,
       followUp: [
         'After sending the notification, you may add a brief natural-language reply if helpful, but do not repeat the notification contents.',
+        ...(pollFallback.required
+          ? pollFallbackLines
+          : ['Wait for the risk_rule.updated webhook before treating the change as complete.']),
       ],
     });
   } catch (err) {
@@ -1528,14 +1585,27 @@ async function handle_get_payment_method_setup_link(args = {}) {
     }
     const notifyDestination = requestNotifyDestination || getNotifyDestination(cache);
     const snapshotBefore = normalizePaymentMethods(methods);
+    const pollFallback = await ensureRequiredPollFallback(
+      'bind_card',
+      snapshotBefore,
+      cache,
+      notifyDestination,
+    );
+    const pollFallbackLines = getRequiredPollFallbackLines({
+      fallback: pollFallback,
+      successEvent: 'payment_method.added',
+    });
     let fallbackReason = 'missing_notify_destination';
 
     if (notifyDestination) {
       try {
         sendNotificationDirect(notifyDestination, notification);
-        await schedulePollFallbackOperationSafely('bind_card', snapshotBefore, notifyDestination);
-        return `[SYSTEM DIRECTIVE] DIRECT_SEND: Payment method setup link generated.
-The notification has been sent. Do NOT send another card.`;
+        return buildDirectSendDirective({
+          summary: 'Payment method setup link generated.',
+          pollFallback,
+          pollFallbackLines,
+          webhookWaitMessage: 'Wait for the payment_method.added webhook before treating the setup as complete.',
+        });
       } catch (err) {
         fallbackReason = 'direct_send_failed';
         await logError('get_payment_method_setup_link/direct_send', err);
@@ -1548,6 +1618,9 @@ The notification has been sent. Do NOT send another card.`;
       notifications: notification,
       followUp: [
         'After sending the notification, you may add a brief natural-language reply if helpful, but do not repeat the notification contents.',
+        ...(pollFallback.required
+          ? pollFallbackLines
+          : ['Wait for the payment_method.added webhook before treating the setup as complete.']),
       ],
     });
   } catch (err) {
@@ -1582,14 +1655,27 @@ async function handle_get_payment_method_modify_link(args = {}) {
     }
     const notifyDestination = requestNotifyDestination || getNotifyDestination(cache);
     const snapshotBefore = normalizePaymentMethods(methods);
+    const pollFallback = await ensureRequiredPollFallback(
+      'change_card',
+      snapshotBefore,
+      cache,
+      notifyDestination,
+    );
+    const pollFallbackLines = getRequiredPollFallbackLines({
+      fallback: pollFallback,
+      successEvent: 'payment_method.added',
+    });
     let fallbackReason = 'missing_notify_destination';
 
     if (notifyDestination) {
       try {
         sendNotificationDirect(notifyDestination, notification);
-        await schedulePollFallbackOperationSafely('change_card', snapshotBefore, notifyDestination);
-        return `[SYSTEM DIRECTIVE] DIRECT_SEND: Payment method management link generated.
-The notification has been sent. Do NOT send another card.`;
+        return buildDirectSendDirective({
+          summary: 'Payment method management link generated.',
+          pollFallback,
+          pollFallbackLines,
+          webhookWaitMessage: 'Wait for the payment_method.added webhook before treating the change as complete.',
+        });
       } catch (err) {
         fallbackReason = 'direct_send_failed';
         await logError('get_payment_method_modify_link/direct_send', err);
@@ -1602,6 +1688,9 @@ The notification has been sent. Do NOT send another card.`;
       notifications: notification,
       followUp: [
         'After sending the notification, you may add a brief natural-language reply if helpful, but do not repeat the notification contents.',
+        ...(pollFallback.required
+          ? pollFallbackLines
+          : ['Wait for the payment_method.added webhook before treating the change as complete.']),
         '',
         `Current Payment Methods: ${JSON.stringify(methods)}`,
       ],
@@ -2327,7 +2416,7 @@ async function handle_clink_refund(args) {
         sendNotificationDirect(notifyDestination, notification);
         return `[SYSTEM DIRECTIVE] DIRECT_SEND: Refund application submitted successfully.
 The notification has been sent. Do NOT send another card.
-Wait for the later refund webhook to deliver the final success/failure notification.`;
+Wait for the later refund webhook to deliver the final success/failure notification. The refund remains pending manual review/processing until the user explicitly asks to query its status.`;
       } catch (sendErr) {
         fallbackReason = 'direct_send_failed';
         await logError('clink_refund/direct_send', sendErr);
@@ -2343,6 +2432,7 @@ Wait for the later refund webhook to deliver the final success/failure notificat
         'Do NOT restate the refund details verbatim in natural language.',
         'Do NOT send this submission notification more than once for the same tool result.',
         'Wait for the later refund webhook to deliver the final success/failure notification.',
+        'Do NOT auto-start refund status polling. Query get_refund_status only when the user explicitly asks about refund progress/status.',
       ],
     });
   } catch (err) {
@@ -2374,14 +2464,8 @@ Wait for the later refund webhook to deliver the final success/failure notificat
   }
 }
 
-function normalizeRefundStatus(status) {
-  return typeof status === 'string' && status.trim()
-    ? status.trim().toLowerCase()
-    : 'unknown';
-}
-
 function buildRefundStatusNotification(data) {
-  const refundStatus = normalizeRefundStatus(data.status);
+  const refundStatus = normalizeRefundStatusCode(data.status);
   const refundAmountDisplay = formatAmountWithCurrency(
     data.refundAmount,
     data.refundCurrency || 'USD',

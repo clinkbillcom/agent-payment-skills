@@ -150,8 +150,8 @@ Exactly one layer owns each card. Do NOT duplicate card delivery across tool, we
 | `clink_pay` sync `status=3/4/6` | payment tool | Payment tool may already send `❌ Payment Failed` or `🛡️ Risk Rule Triggered`; agent MUST NOT send another |
 | `clink_pay` sync `flag3DS=1` | agent | Agent MUST send exactly one `🔐 3DS Verification Required` card from the returned directive |
 | `clink_refund` submission success | payment tool | Payment tool may already send `⏳ Refund Request Submitted`; agent MUST NOT send a duplicate submission card |
-| `agent_refund.succeeded/approved` webhook | payment webhook | Webhook owns the final success notification for the refund lifecycle |
-| `agent_refund.failed/rejected` webhook | payment webhook | Webhook owns the final failure notification for the refund lifecycle |
+| `agent_refund.succeeded/approved` webhook | payment webhook | Webhook owns the final success notification for the refund lifecycle when webhook delivery is available |
+| `agent_refund.failed/rejected` webhook | payment webhook | Webhook owns the final failure notification for the refund lifecycle when webhook delivery is available |
 | `agent_order.succeeded` webhook | payment webhook | Webhook may send `✅ Payment Successful` only if it was not already sent |
 | `agent_order.failed` webhook | payment webhook | Webhook may send failure card only if it was not already sent |
 | Merchant recharge success/failure | merchant confirmation tool | Payment skill MUST NOT send merchant-layer `✅ Recharge Successful` or `❌ Recharge Failed` cards |
@@ -161,14 +161,34 @@ Exactly one layer owns each card. Do NOT duplicate card delivery across tool, we
 - `DIRECT_SEND`
   - Meaning: the tool/webhook has already sent the card itself
   - Agent MUST NOT send a second semantic-equivalent card
+- `DIRECT_SEND_POLL_REQUIRED`
+  - Meaning: the tool has sent the notification AND started a mandatory poll fallback because `webhookAvailable=false`
+  - Agent MUST NOT send a second card
+  - Agent MUST NOT treat this as a completed flow or stop here
+  - Agent MUST inform the user that active monitoring is in progress and continue until the poll fallback reports success, failure, or timeout
+  - This directive supersedes `DIRECT_SEND` semantics — the notification is delivered but the workflow is still open
 - `EXEC_REQUIRED`
   - Meaning: the tool explicitly returned a card exec directive
   - Agent MUST execute it exactly once
 - `WAIT_FOR_WEBHOOK`
   - Meaning: do nothing now; wait for async webhook handoff
+- `WAIT_FOR_WEBHOOK_WHEN_AVAILABLE`
+  - Meaning: waiting on webhook is valid only when `webhookAvailable !== false`
+  - If `webhookAvailable === false`, the tool MUST NOT end in a pure webhook wait state for wallet-binding, card-change, or risk-rule-update flows
 - `DATA_ONLY`
   - Meaning: the tool returned data only; no notification was sent
   - Agent may use the data to construct the next required response
+
+## Async Completion Fallback (Hard Rule)
+
+If webhookAvailable is false, the agent MUST NOT stop at DIRECT_SEND or WAIT_FOR_WEBHOOK. It MUST immediately start the poll fallback flow and continue checking until success, failure, or timeout.
+
+Current required poll-fallback flows:
+
+- payment-method binding completion until `payment_method.added`
+- payment-method change completion until `payment_method.added`
+- risk-rule update completion until `risk_rule.updated`
+Do not add poll fallback for `clink_pay`: order payment execution is synchronous in the payment tool response, and the agent must follow the returned payment directive exactly.
 
 ## Prohibited Behaviors (Hard Rule)
 
@@ -277,7 +297,8 @@ When a user installs or uses this skill for the first time:
    ```
    npx mcporter --config "$MCPORTER_CONFIG_PATH" call agent-payment-skills get_binding_link --args '{}'
    ```
-   - If none → the user gets a card with a link to bind one. **Wait for the `payment_method.added` webhook callback** before proceeding.
+   - If none and `webhookAvailable !== false` → the user gets a card with a link to bind one. Wait for the `payment_method.added` webhook callback before proceeding.
+   - If none and `webhookAvailable === false` → `get_binding_link` MUST start the poll fallback flow immediately after issuing the bind-card instruction. The agent MUST continue waiting for `payment_method.added` or timeout; it MUST NOT stop at `DIRECT_SEND` or a pure webhook wait.
    - If exists and notify routing is available → `get_binding_link` will directly send both the "Payment Method Already Bound" card and the optional risk-rules follow-up card in the same flow. Do NOT call `get_risk_rules_link` again in that turn.
    - If exists but direct notify routing is unavailable → send the returned notifications in order, then skip to step 5.
 4. **View Risk Rules (Optional):** Call `get_risk_rules_link` to let the user view and optionally configure risk rules. This step is NOT required — initialization is complete once a payment method is bound. Risk rules can be configured at any time.
@@ -286,6 +307,7 @@ When a user installs or uses this skill for the first time:
    npx mcporter --config "$MCPORTER_CONFIG_PATH" call agent-payment-skills get_risk_rules_link --args '{}'
    ```
    This step is mainly for standalone "modify/view risk rules" requests or for fallback paths where `get_binding_link` could not deliver the optional risk-rules follow-up directly.
+   - If `webhookAvailable === false`, `get_risk_rules_link` MUST start the poll fallback flow immediately and continue until `risk_rule.updated` or timeout.
 5. **Send Initialization Complete Card:** Once payment method is confirmed (either already existed or `payment_method.added` webhook received), send the "🎉 Clink Setup Complete!" card. Do NOT wait for risk rules.
 
 ### 2. Execute Payment (Direct or Auto Top-Up)
@@ -344,7 +366,7 @@ When the user asks to refund an existing Clink order:
 ### 2.7 Query Refund Status
 When the user asks to check an existing refund:
 1. **Require Refund Context:** Collect or confirm the target `refundOrderId`. Do NOT guess it from memory.
-2. **Call `get_refund_status`:** Query the current refund state with the `refundOrderId`.
+2. **Call `get_refund_status`:** Query the current refund state with the `refundOrderId` only when the user explicitly asks about refund progress/status.
    If calling via shell (do NOT omit --args):
    ```
    npx mcporter --config "$MCPORTER_CONFIG_PATH" call agent-payment-skills get_refund_status --args '{"refundOrderId":"<REFUND_ORDER_ID>"}'

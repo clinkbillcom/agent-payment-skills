@@ -1144,6 +1144,36 @@ const MESSAGE_CATALOG = Object.freeze({
       sections: [vars.description || 'The refund status could not be retrieved right now. Please try again later.'],
     }),
   }),
+  'poll_fallback.timeout': defineCatalogEntry({
+    'zh-CN': (vars) => buildMessageModel({
+      key: 'poll_fallback.timeout',
+      locale: 'zh-CN',
+      title: '⌛ 异步监控超时',
+      theme: 'orange',
+      facts: [
+        ['监控流程', vars.flowLabel || 'N/A'],
+        ['关联 ID', vars.referenceId || 'N/A'],
+        ['等待事件', vars.expectedEvent || 'N/A'],
+      ],
+      sections: [
+        `系统在监控窗口内仍未等到 ${vars.expectedEvent || '目标事件'}。请稍后重试，或手动再次查询当前状态。`,
+      ],
+    }),
+    'en-US': (vars) => buildMessageModel({
+      key: 'poll_fallback.timeout',
+      locale: 'en-US',
+      title: '⌛ Async Monitoring Timed Out',
+      theme: 'orange',
+      facts: [
+        ['Flow', vars.flowLabel || 'N/A'],
+        ['Reference ID', vars.referenceId || 'N/A'],
+        ['Expected Event', vars.expectedEvent || 'N/A'],
+      ],
+      sections: [
+        `The monitoring window expired before ${vars.expectedEvent || 'the expected event'} arrived. Please retry later or query the latest status manually.`,
+      ],
+    }),
+  }),
   'install.success': defineCatalogEntry({
     'zh-CN': (vars) => buildMessageModel({
       key: 'install.success',
